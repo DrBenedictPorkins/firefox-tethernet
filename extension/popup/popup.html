@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FoxHole Debug Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="14" stroke="#ff6b35" stroke-width="2"/>
+          <path d="M16 8 L16 24 M10 16 L22 16" stroke="#ff6b35" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="title">
+        <h1>FoxHole</h1>
+        <p class="subtitle">Debug Bridge</p>
+      </div>
+    </div>
+
+    <div class="status-section">
+      <div class="status-label">Status:</div>
+      <div id="status" class="status-badge disconnected">Disconnected</div>
+    </div>
+
+    <div class="info-section">
+      <div class="info-row">
+        <span class="info-label">Server:</span>
+        <span id="server-url" class="info-value">ws://localhost:19888</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Version:</span>
+        <span class="info-value">1.0.0</span>
+      </div>
+    </div>
+
+    <div class="tab-section">
+      <div class="tab-header">
+        <span class="info-label">Current Tab:</span>
+        <span id="tab-status" class="tab-badge ready">Ready</span>
+      </div>
+      <div id="tab-info" class="tab-info"></div>
+      <div id="reload-notice" class="reload-notice hidden">
+        <span>Content script not loaded</span>
+        <button id="reload-btn" class="reload-btn">Reload Page</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Capture Log Sources</span>
+          <span class="setting-description">Include file:line:col in console logs</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="capture-source-toggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div id="source-warning" class="setting-warning">
+        May impact page performance on sites with heavy logging
+      </div>
+    </div>
+
+    <div class="description">
+      <p>Connect your browser to the FoxHole server for remote debugging, automation, and testing.</p>
+    </div>
+
+    <div class="footer">
+      <p>Open <code>about:debugging#/runtime/this-firefox</code> to inspect the extension.</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

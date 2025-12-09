@@ -1,0 +1,20 @@
+{
+  "name": "foxhole",
+  "version": "1.0.0",
+  "description": "Firefox debugging bridge for Claude Code via MCP",
+  "private": true,
+  "workspaces": [
+    "server"
+  ],
+  "scripts": {
+    "dev": "cd server && npm run dev",
+    "build": "cd server && npm run build",
+    "start": "cd server && npm start",
+    "ext:run": "web-ext run --source-dir=extension",
+    "ext:lint": "web-ext lint --source-dir=extension",
+    "ext:build": "web-ext build --source-dir=extension"
+  },
+  "devDependencies": {
+    "web-ext": "^8.3.0"
+  }
+}
