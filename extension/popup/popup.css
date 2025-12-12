@@ -44,9 +44,25 @@ body {
 
 .status-section {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.status-row {
+  display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 16px;
+}
+
+.connection-time {
+  font-size: 11px;
+  color: #28a745;
+  padding-left: 2px;
+}
+
+.connection-time.hidden {
+  display: none;
 }
 
 .status-label {
@@ -79,6 +95,44 @@ body {
   background-color: rgba(220, 53, 69, 0.2);
   color: #dc3545;
   border: 1px solid #dc3545;
+}
+
+/* Session Section */
+.session-section {
+  background-color: #16213e;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.session-header {
+  margin-bottom: 8px;
+}
+
+.session-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-project {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ff6b35;
+  word-break: break-all;
+}
+
+.session-details {
+  font-size: 11px;
+  color: #888;
+  font-family: 'Courier New', monospace;
+}
+
+.session-none {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
 }
 
 .info-section {
@@ -229,6 +283,70 @@ body {
 
 .reload-btn:hover {
   background-color: #e55a2b;
+}
+
+/* Buffer Section */
+.buffer-section {
+  background-color: #16213e;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.buffer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.clear-btn {
+  background-color: transparent;
+  color: #dc3545;
+  border: 1px solid #dc3545;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.clear-btn:hover {
+  background-color: rgba(220, 53, 69, 0.2);
+}
+
+.clear-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buffer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.buffer-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px;
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+}
+
+.buffer-count {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ff6b35;
+}
+
+.buffer-label {
+  font-size: 10px;
+  color: #888;
+  margin-top: 2px;
 }
 
 /* Settings Section */

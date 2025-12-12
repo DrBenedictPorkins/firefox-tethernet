@@ -2,7 +2,6 @@ import { createServer } from 'http';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { BufferStore } from './buffer/store.js';
 import { ConnectionManager } from './connection/manager.js';
 import { ExtensionConnectionHandler } from './connection/extension.js';
 import { ToolHandlers } from './mcp/handlers.js';
@@ -12,7 +11,6 @@ import { CONFIG } from './utils/config.js';
 
 export async function startServer(): Promise<void> {
   // Initialize core components
-  const bufferStore = new BufferStore();
   const connectionManager = new ConnectionManager();
   const sessionLogger = new SessionLogger();
 
@@ -24,7 +22,6 @@ export async function startServer(): Promise<void> {
       res.end(JSON.stringify({
         status: 'ok',
         extensionConnected: extensionHandler.isConnected(),
-        tabCount: bufferStore.getTabCount(),
       }));
     } else {
       res.writeHead(404);
@@ -35,13 +32,11 @@ export async function startServer(): Promise<void> {
   // Setup extension WebSocket handler
   const extensionHandler = new ExtensionConnectionHandler(
     httpServer,
-    bufferStore,
     connectionManager
   );
 
   // Setup tool handlers
   const toolHandlers = new ToolHandlers(
-    bufferStore,
     extensionHandler.sendToExtension.bind(extensionHandler),
     connectionManager
   );
@@ -56,14 +51,28 @@ IMPORTANT: Use the 'foxhole' agent for all browser automation tasks. The agent h
 Quick reference:
 - get_connection_status, list_tabs, set_primary_tab - Connection & tab management
 - navigate, reload_page, go_back/forward - Navigation
-- execute_script, evaluate_expression - PRIMARY tools for DOM/data (prefer over specialized tools)
-- dom_stats, query_selector, get_page_content - DOM inspection
+- execute_script - PRIMARY tool for DOM/data extraction and manipulation
+- dom_stats, get_dom_structure, get_page_content - DOM inspection (see workflow below)
+- query_selector, get_element_properties - Element lookup
 - click_element, type_text, fill_form - Interaction
-- get_console_logs, get_network_requests, get_js_errors - Monitoring
+- query_buffer - Query console, errors, network, websocket with JS transforms
 - take_screenshot - Capture page
 
 All tools default to primary tab if tabId not specified.
 Use frameId parameter for iframe targeting (0 = top frame).
+
+## DOM Inspection Workflow (IMPORTANT)
+
+Large pages can flood context. Always follow this pattern:
+
+1. **dom_stats()** - Check htmlSize first. If >50KB, do NOT use get_page_content
+2. **get_dom_structure({ depth: 1 })** - Get top-level structure (~2-3KB)
+3. **get_dom_structure({ selector: '#main', depth: 2 })** - Drill into sections
+4. **execute_script** - For targeted data extraction once you know the structure
+
+Example: Paramount+ homepage is 907KB. Using get_dom_structure progressively: ~10KB total.
+
+Raw content detection: If page is JSON/XML/text (single <pre> in body), get_dom_structure returns size + preview instead of structure.
 
 ## Ollama Integration (Local LLM)
 
@@ -85,7 +94,16 @@ Use when: Large pages where you need to extract specific data without consuming 
 - ollama_unavailable: Ollama server not reachable. Fallback to get_page_content + process in context, or ask user if server is online.
 - ollama_error: Model error (context too long, etc). Try different approach.
 
-**Check availability:** get_connection_status returns ollamaEnabled and ollamaAvailable booleans.`;
+**Check availability:** get_connection_status returns ollamaEnabled and ollamaAvailable booleans.
+
+## Rendering HTML Reports in Browser
+
+To display HTML reports, formatted data, or generated content in the browser:
+
+1. Write HTML to a temp file (e.g., /tmp/report.html)
+2. Use navigate tool: navigate({ url: 'file:///tmp/report.html' })
+
+**Avoid:** Data URIs (blocked by Firefox), about:blank (no content script), injecting into other sites.`;
 
   const mcpServer = new Server(
     {

@@ -34,7 +34,7 @@ export const TOOLS: MCPToolDefinition[] = [
   },
   {
     name: 'set_primary_tab',
-    description: 'Set the primary tab for monitoring (default for operations when tabId not specified)',
+    description: 'Set the default tab for operations when tabId not specified',
     inputSchema: {
       type: 'object',
       properties: {
@@ -99,7 +99,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
       required: ['url'],
@@ -113,7 +113,7 @@ export const TOOLS: MCPToolDefinition[] = [
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         bypassCache: {
           type: 'boolean',
@@ -130,7 +130,7 @@ export const TOOLS: MCPToolDefinition[] = [
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
@@ -143,128 +143,83 @@ export const TOOLS: MCPToolDefinition[] = [
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
   },
 
-  // Console & Errors
+  // Buffer Query (consolidated)
   {
-    name: 'get_console_logs',
-    description: 'Get console logs from the specified or primary tab buffer. USE AGENT: Can return large payload.',
+    name: 'query_buffer',
+    description: 'Query buffered data with JS transform to shape/filter results.',
     inputSchema: {
       type: 'object',
       properties: {
-        tabId: {
-          type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
-        },
-        level: {
+        type: {
           type: 'string',
-          enum: ['log', 'info', 'warn', 'error', 'debug'],
-          description: 'Filter by log level',
+          enum: ['console', 'errors', 'network', 'websocket'],
+          description: 'Buffer type to query',
         },
-        limit: {
-          type: 'number',
-          description: 'Maximum number of logs to return',
+        transform: {
+          type: 'string',
+          description: 'Required JS expression applied to data array. Examples: .filter(x => x.level === "error").slice(-20) or .sort((a,b) => b.duration - a.duration).slice(0,5)',
         },
-      },
-    },
-  },
-  {
-    name: 'get_js_errors',
-    description: 'Get JavaScript errors from the specified or primary tab buffer. USE AGENT: Can return large payload with stack traces.',
-    inputSchema: {
-      type: 'object',
-      properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum number of errors to return',
+          description: 'Tab ID (default: primary tab)',
         },
       },
+      required: ['type', 'transform'],
     },
   },
 
-  // Network Monitoring
+  // Network Detail (single item lookup)
   {
-    name: 'get_network_requests',
-    description: 'Get network requests from the specified or primary tab buffer. USE AGENT: Can return large payload with headers/bodies.',
+    name: 'get_network_request_detail',
+    description: 'Get full details of a network request by ID (headers, bodies).',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Optional tab ID',
         },
-        method: {
+        requestId: {
           type: 'string',
-          description: 'Filter by HTTP method (GET, POST, etc.)',
-        },
-        urlPattern: {
-          type: 'string',
-          description: 'Filter by URL pattern (regex)',
-        },
-        statusCode: {
-          type: 'number',
-          description: 'Filter by status code',
+          description: 'The request ID to fetch',
         },
       },
+      required: ['requestId'],
     },
   },
-  {
-    name: 'get_websocket_messages',
-    description: 'Get WebSocket messages from the specified or primary tab buffer. USE AGENT: Can return large payload.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: {
-          type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
-        },
-        url: {
-          type: 'string',
-          description: 'Filter by WebSocket URL',
-        },
-        limit: {
-          type: 'number',
-          description: 'Maximum number of messages to return',
-        },
-      },
-    },
-  },
-
   // DOM & Content
   {
     name: 'list_frames',
-    description: 'List all frames (including iframes) in a tab with their URLs, titles, and frameIds. Useful for debugging frame targeting issues.',
+    description: 'List all frames (iframes) with URLs and frameIds.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
   },
   {
     name: 'dom_stats',
-    description: 'Get DOM statistics (element count, depth, size) without loading full content. Useful for assessing page complexity before querying.',
+    description: 'Get DOM statistics (element count, depth, size) without full HTML.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         frameId: {
           type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
         },
         includeTags: {
           type: 'boolean',
@@ -275,37 +230,62 @@ export const TOOLS: MCPToolDefinition[] = [
   },
   {
     name: 'get_page_content',
-    description: 'Get the current page HTML content. USE AGENT: Returns full HTML, can be very large (MB+). Use dom_stats first to check size.',
+    description: 'Get full page HTML. Can be large - use dom_stats first to check size.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         frameId: {
           type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_dom_structure',
+    description: 'Get DOM structure at specified depth. Shows element hierarchy with child counts beyond depth limit. Use for exploring large pages without fetching full HTML.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'Tab ID (default: primary tab)',
+        },
+        frameId: {
+          type: 'number',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
+        },
+        selector: {
+          type: 'string',
+          description: 'CSS selector to start from (default: body)',
+        },
+        depth: {
+          type: 'number',
+          description: 'How many levels deep to expand (default: 2)',
         },
       },
     },
   },
   {
     name: 'get_dom_snapshot',
-    description: 'Get stored DOM snapshots from buffer. USE AGENT: Can return multiple large HTML snapshots.',
+    description: 'Get stored DOM snapshots from buffer.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
   },
   {
     name: 'query_selector',
-    description: 'Query DOM elements using CSS selector. USE AGENT: Can return many elements depending on selector.',
+    description: 'Query DOM elements using CSS selector.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -315,11 +295,11 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         frameId: {
           type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
         },
       },
       required: ['selector'],
@@ -342,11 +322,11 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         frameId: {
           type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
         },
       },
       required: ['selector'],
@@ -366,11 +346,11 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         frameId: {
           type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
         },
       },
       required: ['selector'],
@@ -392,11 +372,11 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         frameId: {
           type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
         },
       },
       required: ['selector', 'text'],
@@ -414,7 +394,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
       required: ['fields'],
@@ -440,7 +420,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
@@ -449,13 +429,13 @@ export const TOOLS: MCPToolDefinition[] = [
   // Screenshots
   {
     name: 'take_screenshot',
-    description: 'Take a screenshot of the current page. By default saves to /tmp and returns file path. Set returnBase64=true to return base64 data instead.',
+    description: 'Take screenshot. Saves to /tmp by default, or returnBase64=true for data.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         fullPage: {
           type: 'boolean',
@@ -479,13 +459,13 @@ export const TOOLS: MCPToolDefinition[] = [
   },
   {
     name: 'get_screenshots',
-    description: 'Get stored screenshots from buffer. USE AGENT: Returns multiple base64 images, very large payload.',
+    description: 'Get stored screenshots from buffer.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
@@ -494,26 +474,26 @@ export const TOOLS: MCPToolDefinition[] = [
   // Storage & Cookies
   {
     name: 'get_local_storage',
-    description: 'Get localStorage data from buffer. USE AGENT: Payload size varies by site.',
+    description: 'Get localStorage data.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
   },
   {
     name: 'get_session_storage',
-    description: 'Get sessionStorage data from buffer. USE AGENT: Payload size varies by site.',
+    description: 'Get sessionStorage data.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
@@ -534,7 +514,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
       required: ['key', 'value'],
@@ -542,13 +522,13 @@ export const TOOLS: MCPToolDefinition[] = [
   },
   {
     name: 'get_cookies',
-    description: 'Get cookies from buffer. USE AGENT: Payload size varies by site.',
+    description: 'Get cookies for current page.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
@@ -577,7 +557,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
       required: ['name', 'value'],
@@ -586,22 +566,74 @@ export const TOOLS: MCPToolDefinition[] = [
 
   // Script Execution
   {
-    name: 'execute_script',
-    description: 'Execute JavaScript code in the page context. Payloads >50KB are blocked by default - rewrite JS to filter/limit, use preview:true for sample, or force:true to override.',
+    name: 'execute_background_script',
+    description: `Execute JavaScript in the extension's background context with full browser.* API access.
+
+USE FOR: Window management, notifications, history, bookmarks, downloads, extension storage, advanced tab control.
+
+COMMON PATTERNS:
+  // Focus window + draw attention (taskbar flash/dock bounce)
+  browser.windows.update(windowId, { focused: true, drawAttention: true })
+
+  // System notification
+  browser.notifications.create({ type: "basic", title: "Done", message: "Task complete" })
+
+  // Search history
+  browser.history.search({ text: "github", maxResults: 10 })
+
+  // Persistent storage (survives restarts)
+  await browser.storage.local.set({ key: value })
+  await browser.storage.local.get("key")
+
+  // Mute/pin tab
+  browser.tabs.update(tabId, { muted: true, pinned: true })
+
+  // Get all windows
+  browser.windows.getAll({ populate: true })
+
+NOT FOR: DOM manipulation, page scraping (use execute_script instead).`,
     inputSchema: {
       type: 'object',
       properties: {
         code: {
           type: 'string',
-          description: 'JavaScript code to execute',
+          description: 'JavaScript code to execute. Has access to all browser.* APIs. Use await for async operations.',
+        },
+      },
+      required: ['code'],
+    },
+  },
+  {
+    name: 'execute_script',
+    description: `Execute JavaScript in page context with full DOM access. Large payloads (>50KB) blocked unless preview:true or force:true.
+
+USE FOR: DOM queries, data extraction, element manipulation, reading page state, evaluating expressions.
+
+EXAMPLES:
+  // Simple expression
+  document.title
+
+  // Extract data
+  Array.from(document.querySelectorAll('.item')).map(el => el.textContent)
+
+  // Complex logic (wrap in IIFE)
+  (() => { const data = {}; /* logic */; return data; })()
+
+NOT FOR: Browser APIs like history, bookmarks, notifications (use execute_background_script instead).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        code: {
+          type: 'string',
+          description: 'JavaScript code to execute. Returns the result of the last expression.',
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         frameId: {
           type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
         },
         preview: {
           type: 'boolean',
@@ -613,64 +645,6 @@ export const TOOLS: MCPToolDefinition[] = [
         },
       },
       required: ['code'],
-    },
-  },
-  {
-    name: 'evaluate_expression',
-    description: 'Evaluate a JavaScript expression and return the result. Payloads >50KB are blocked by default - rewrite expression to filter/limit, use preview:true for sample, or force:true to override.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        expression: {
-          type: 'string',
-          description: 'JavaScript expression to evaluate',
-        },
-        tabId: {
-          type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
-        },
-        frameId: {
-          type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
-        },
-        preview: {
-          type: 'boolean',
-          description: 'If true, returns first 50KB of large payloads as sample instead of blocking',
-        },
-        force: {
-          type: 'boolean',
-          description: 'If true, returns full payload regardless of size (use with caution)',
-        },
-      },
-      required: ['expression'],
-    },
-  },
-
-  // Performance
-  {
-    name: 'get_performance_metrics',
-    description: 'Get performance metrics from buffer',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: {
-          type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
-        },
-      },
-    },
-  },
-  {
-    name: 'measure_performance',
-    description: 'Capture current performance metrics',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        tabId: {
-          type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
-        },
-      },
     },
   },
 
@@ -687,7 +661,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         dataType: {
           type: 'string',
-          enum: ['console', 'network', 'websocket', 'errors', 'dom', 'screenshots', 'storage', 'cookies', 'performance'],
+          enum: ['console', 'network', 'websocket', 'errors', 'dom', 'screenshots', 'storage', 'cookies'],
           description: 'Specific data type to clear (clears all if not specified)',
         },
       },
@@ -730,11 +704,11 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         frameId: {
           type: 'number',
-          description: 'Optional frame ID (0 = top frame, default). Use to target specific iframes.',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
         },
       },
       required: ['selector'],
@@ -752,7 +726,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
     },
@@ -771,7 +745,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
       required: ['headers'],
@@ -790,7 +764,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
       },
       required: ['patterns'],
@@ -800,7 +774,7 @@ export const TOOLS: MCPToolDefinition[] = [
   // Ollama Integration (Local LLM)
   {
     name: 'ollama_analyze_page',
-    description: 'Fetch page HTML and send to local Ollama server for analysis. Use for extracting structured data from complex pages without consuming CC context tokens. Returns error if Ollama unavailable.',
+    description: 'Send page HTML to local Ollama for analysis. Returns error if unavailable.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -810,7 +784,7 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         tabId: {
           type: 'number',
-          description: 'Optional tab ID (uses primary tab if not specified)',
+          description: 'Tab ID (default: primary tab)',
         },
         model: {
           type: 'string',

@@ -1,18 +1,239 @@
 /**
- * FoxHole Background Script
- * Manages WebSocket connection to server and coordinates all extension functionality
+ * FoxHole Background Script - Extension as Data Server
+ * The extension is the SOURCE OF TRUTH for all browser data.
+ * The MCP server is a stateless proxy that queries the extension on-demand.
  */
 
 const SERVER_URL = 'ws://localhost:19888/extension';
 const RECONNECT_INTERVAL = 2000;
 
+// Buffer configuration
+const BUFFER_CONFIG = {
+  maxConsoleLogs: 1000,
+  maxNetworkRequests: 500,
+  maxWebSocketMessages: 500,
+  maxJSErrors: 200,
+  maxDOMSnapshots: 10,
+  maxScreenshots: 5
+};
+
+// Local buffer storage - Extension owns all data
+const tabBuffers = new Map(); // tabId -> TabBuffer
+
 let ws = null;
 let reconnectTimer = null;
 let connectionState = 'disconnected'; // 'connected', 'connecting', 'disconnected'
+let connectedAt = null; // Timestamp when connection was established
+let sessionInfo = null; // MCP server session info {pid, cwd, projectName, port}
 let requestHandlers = new Map(); // requestId -> {resolve, reject, timeout}
 
 // Track tabs with content script injected
 const contentScriptTabs = new Set();
+
+// Buffer structure for each tab
+function createTabBuffer(tabInfo = {}) {
+  return {
+    tabInfo: {
+      id: tabInfo.id || 0,
+      url: tabInfo.url || '',
+      title: tabInfo.title || '',
+      active: tabInfo.active || false,
+      windowId: tabInfo.windowId || 0
+    },
+    consoleLogs: [],
+    networkRequests: [],
+    webSocketMessages: [],
+    jsErrors: [],
+    domSnapshots: [],
+    screenshots: [],
+    lastActivity: Date.now()
+  };
+}
+
+// Get or create buffer for a tab
+function getOrCreateBuffer(tabId, tabInfo = {}) {
+  if (!tabBuffers.has(tabId)) {
+    tabBuffers.set(tabId, createTabBuffer({ id: tabId, ...tabInfo }));
+  }
+  const buffer = tabBuffers.get(tabId);
+  buffer.lastActivity = Date.now();
+  return buffer;
+}
+
+// FIFO eviction helper
+function addToBuffer(array, item, maxSize) {
+  array.push(item);
+  while (array.length > maxSize) {
+    array.shift();
+  }
+}
+
+// Buffer query handlers
+function handleQueryBuffer(params) {
+  const { type, transform, tabId } = params;
+
+  let data = [];
+
+  if (tabId) {
+    const buffer = tabBuffers.get(tabId);
+    if (!buffer) {
+      return [];
+    }
+
+    switch (type) {
+      case 'console':
+        data = buffer.consoleLogs;
+        break;
+      case 'errors':
+        data = buffer.jsErrors;
+        break;
+      case 'network':
+        data = buffer.networkRequests;
+        break;
+      case 'websocket':
+        data = buffer.webSocketMessages;
+        break;
+      default:
+        return { error: `Unknown buffer type: ${type}` };
+    }
+  } else {
+    // Query across all tabs
+    switch (type) {
+      case 'console':
+        data = Array.from(tabBuffers.values()).flatMap(b => b.consoleLogs);
+        break;
+      case 'errors':
+        data = Array.from(tabBuffers.values()).flatMap(b => b.jsErrors);
+        break;
+      case 'network':
+        data = Array.from(tabBuffers.values()).flatMap(b => b.networkRequests);
+        break;
+      case 'websocket':
+        data = Array.from(tabBuffers.values()).flatMap(b => b.webSocketMessages);
+        break;
+      default:
+        return { error: `Unknown buffer type: ${type}` };
+    }
+  }
+
+  // Apply transform if provided
+  if (transform) {
+    try {
+      const transformFn = new Function('data', `return data${transform}`);
+      data = transformFn(data);
+    } catch (error) {
+      return { error: `Transform failed: ${error.message}` };
+    }
+  }
+
+  return data;
+}
+
+function handleGetNetworkDetail(params) {
+  const { requestId, tabId } = params;
+
+  if (tabId) {
+    const buffer = tabBuffers.get(tabId);
+    if (!buffer) {
+      return { error: `No buffer found for tab ${tabId}` };
+    }
+    const request = buffer.networkRequests.find(r => r.requestId === requestId);
+    return request || { error: 'Request not found' };
+  }
+
+  // Search all tabs
+  for (const buffer of tabBuffers.values()) {
+    const request = buffer.networkRequests.find(r => r.requestId === requestId);
+    if (request) {
+      return request;
+    }
+  }
+
+  return { error: 'Request not found in any tab' };
+}
+
+function handleGetTabBufferSummary(params) {
+  const summaries = Array.from(tabBuffers.entries()).map(([id, buffer]) => ({
+    tabId: id,
+    tabInfo: buffer.tabInfo,
+    consoleLogs: buffer.consoleLogs.length,
+    networkRequests: buffer.networkRequests.length,
+    webSocketMessages: buffer.webSocketMessages.length,
+    jsErrors: buffer.jsErrors.length,
+    domSnapshots: buffer.domSnapshots.length,
+    screenshots: buffer.screenshots.length,
+    lastActivity: buffer.lastActivity
+  }));
+
+  return {
+    totalTabs: tabBuffers.size,
+    bufferSizes: Object.fromEntries(
+      summaries.map(s => [s.tabId, {
+        consoleLogs: s.consoleLogs,
+        networkRequests: s.networkRequests,
+        webSocketMessages: s.webSocketMessages,
+        jsErrors: s.jsErrors
+      }])
+    ),
+    summaries
+  };
+}
+
+function handleClearBuffer(params) {
+  const { tabId, dataType } = params;
+
+  if (tabId) {
+    const buffer = tabBuffers.get(tabId);
+    if (!buffer) {
+      return { success: false, error: `No buffer found for tab ${tabId}` };
+    }
+
+    if (dataType) {
+      switch (dataType) {
+        case 'console': buffer.consoleLogs = []; break;
+        case 'errors': buffer.jsErrors = []; break;
+        case 'network': buffer.networkRequests = []; break;
+        case 'websocket': buffer.webSocketMessages = []; break;
+        case 'dom': buffer.domSnapshots = []; break;
+        case 'screenshots': buffer.screenshots = []; break;
+        default: return { success: false, error: `Unknown buffer type: ${dataType}` };
+      }
+    } else {
+      tabBuffers.set(tabId, createTabBuffer(buffer.tabInfo));
+    }
+    return { success: true };
+  }
+
+  // Clear all tabs
+  if (dataType) {
+    for (const buffer of tabBuffers.values()) {
+      switch (dataType) {
+        case 'console': buffer.consoleLogs = []; break;
+        case 'errors': buffer.jsErrors = []; break;
+        case 'network': buffer.networkRequests = []; break;
+        case 'websocket': buffer.webSocketMessages = []; break;
+        case 'dom': buffer.domSnapshots = []; break;
+        case 'screenshots': buffer.screenshots = []; break;
+      }
+    }
+  } else {
+    tabBuffers.clear();
+  }
+
+  return { success: true };
+}
+
+function handleGetDomSnapshot(params) {
+  const { tabId } = params;
+  const buffer = tabBuffers.get(tabId);
+  return buffer ? buffer.domSnapshots : [];
+}
+
+function handleGetScreenshots(params) {
+  const { tabId } = params;
+  const buffer = tabBuffers.get(tabId);
+  return buffer ? buffer.screenshots : [];
+}
 
 // Connection management
 function connect() {
@@ -29,6 +250,7 @@ function connect() {
     ws.onopen = () => {
       console.log('[FoxHole] Connected to server');
       connectionState = 'connected';
+      connectedAt = Date.now();
       updateIcon();
       clearTimeout(reconnectTimer);
 
@@ -39,6 +261,14 @@ function connect() {
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
+
+        // Handle session info from MCP server
+        if (message.type === 'session_info') {
+          sessionInfo = message.data;
+          console.log('[FoxHole] Session info received:', sessionInfo.projectName, 'PID:', sessionInfo.pid);
+          return;
+        }
+
         handleServerCommand(message);
       } catch (error) {
         console.error('[FoxHole] Failed to parse server message:', error);
@@ -52,6 +282,8 @@ function connect() {
     ws.onclose = () => {
       console.log('[FoxHole] Disconnected from server');
       connectionState = 'disconnected';
+      connectedAt = null;
+      sessionInfo = null;
       updateIcon();
       ws = null;
 
@@ -215,6 +447,35 @@ async function handleServerCommand(message) {
 
       case 'clear_blocked_urls':
         result = handleClearBlockedUrls(params);
+        break;
+
+      case 'execute_background_script':
+        result = await handleExecuteBackgroundScript(params);
+        break;
+
+      // Buffer query commands (MCP server forwards these to extension)
+      case 'query_buffer':
+        result = handleQueryBuffer(params);
+        break;
+
+      case 'get_network_request_detail':
+        result = handleGetNetworkDetail(params);
+        break;
+
+      case 'get_tab_buffer_summary':
+        result = handleGetTabBufferSummary(params);
+        break;
+
+      case 'clear_buffer':
+        result = handleClearBuffer(params);
+        break;
+
+      case 'get_dom_snapshot':
+        result = handleGetDomSnapshot(params);
+        break;
+
+      case 'get_screenshots':
+        result = handleGetScreenshots(params);
         break;
 
       // Commands forwarded to content script
@@ -421,6 +682,18 @@ function handleClearBlockedUrls(params) {
   return { success: true };
 }
 
+async function handleExecuteBackgroundScript(params) {
+  const { code } = params;
+  try {
+    // Wrap in async IIFE to support await
+    const fn = new Function('browser', `return (async () => { ${code} })()`);
+    const result = await fn(browser);
+    return { result };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
 async function forwardToContentScript(tabId, action, params) {
   try {
     // Default to frameId 0 (top frame) to avoid cross-origin iframes responding first
@@ -443,6 +716,66 @@ const customHeaders = new Map();
 
 // Blocked URL patterns per tab (tabId -> [patterns])
 const blockedUrlPatterns = new Map();
+
+// Helper function to serialize request body (ArrayBuffer cannot be JSON stringified)
+function serializeRequestBody(requestBody) {
+  if (!requestBody) return null;
+
+  try {
+    // Handle raw data (e.g., JSON POST bodies)
+    if (requestBody.raw && Array.isArray(requestBody.raw)) {
+      const decoder = new TextDecoder('utf-8');
+      const parts = requestBody.raw.map(part => {
+        if (part.bytes instanceof ArrayBuffer) {
+          return decoder.decode(part.bytes);
+        }
+        return '';
+      });
+      const rawText = parts.join('');
+
+      // Try to parse as JSON if it looks like JSON
+      if (rawText.startsWith('{') || rawText.startsWith('[')) {
+        try {
+          return JSON.parse(rawText);
+        } catch (e) {
+          // Return as string if not valid JSON
+          return rawText;
+        }
+      }
+      return rawText;
+    }
+
+    // Handle form data
+    if (requestBody.formData) {
+      return { formData: requestBody.formData };
+    }
+
+    return null;
+  } catch (e) {
+    console.error('[FoxHole] Error serializing request body:', e);
+    return null;
+  }
+}
+
+// Store response body data per request (populated by filterResponseData)
+const responseBodyChunks = new Map();
+
+// Content types we want to capture response bodies for
+const CAPTURABLE_CONTENT_TYPES = [
+  'application/json',
+  'text/plain',
+  'text/html',
+  'text/xml',
+  'application/xml',
+  'application/javascript',
+  'text/javascript'
+];
+
+// Check if we should capture response body based on request type
+function shouldCaptureResponseBody(details) {
+  // Only capture XHR/fetch requests (most likely to be API calls)
+  return details.type === 'xmlhttprequest';
+}
 
 browser.webRequest.onBeforeRequest.addListener(
   (details) => {
@@ -472,8 +805,62 @@ browser.webRequest.onBeforeRequest.addListener(
       tabId,
       type,
       startTime: timeStamp,
-      requestBody: details.requestBody
+      requestBody: serializeRequestBody(details.requestBody)
     });
+
+    // Set up response body capture for XHR requests
+    if (shouldCaptureResponseBody(details)) {
+      try {
+        const filter = browser.webRequest.filterResponseData(requestId);
+        const chunks = [];
+
+        filter.ondata = (event) => {
+          // Store the chunk
+          chunks.push(new Uint8Array(event.data));
+          // Pass data through unchanged to the page
+          filter.write(event.data);
+        };
+
+        filter.onstop = () => {
+          // Combine all chunks into a single array
+          const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+          const combined = new Uint8Array(totalLength);
+          let offset = 0;
+          for (const chunk of chunks) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+          }
+
+          // Decode as text
+          const decoder = new TextDecoder('utf-8');
+          const text = decoder.decode(combined);
+
+          // Try to parse as JSON, otherwise store as string
+          let responseBody = text;
+          if (text.startsWith('{') || text.startsWith('[')) {
+            try {
+              responseBody = JSON.parse(text);
+            } catch (e) {
+              // Keep as string
+            }
+          }
+
+          // Store for later retrieval by onCompleted
+          responseBodyChunks.set(requestId, responseBody);
+
+          // Clean up the filter
+          filter.disconnect();
+        };
+
+        filter.onerror = (event) => {
+          console.error(`[FoxHole] Filter error for ${url}:`, filter.error);
+          filter.disconnect();
+        };
+      } catch (e) {
+        // filterResponseData may fail for some request types, ignore
+        console.warn(`[FoxHole] Could not filter response for ${url}:`, e.message);
+      }
+    }
   },
   { urls: ['<all_urls>'] },
   ['blocking', 'requestBody']
@@ -515,13 +902,20 @@ browser.webRequest.onCompleted.addListener(
       request.statusCode = details.statusCode;
       request.responseHeaders = details.responseHeaders;
       request.endTime = details.timeStamp;
+      request.responseTimestamp = details.timeStamp;
       request.duration = details.timeStamp - request.startTime;
 
-      sendToServer({
-        type: 'network_request',
-        tabId: request.tabId,
-        data: request
-      });
+      // Attach captured response body if available
+      if (responseBodyChunks.has(details.requestId)) {
+        request.responseBody = responseBodyChunks.get(details.requestId);
+        responseBodyChunks.delete(details.requestId);
+      }
+
+      // Store in local buffer (extension is source of truth)
+      if (request.tabId) {
+        const buffer = getOrCreateBuffer(request.tabId);
+        addToBuffer(buffer.networkRequests, request, BUFFER_CONFIG.maxNetworkRequests);
+      }
 
       networkRequests.delete(details.requestId);
     }
@@ -538,11 +932,11 @@ browser.webRequest.onErrorOccurred.addListener(
       request.endTime = details.timeStamp;
       request.duration = details.timeStamp - request.startTime;
 
-      sendToServer({
-        type: 'network_request',
-        tabId: request.tabId,
-        data: request
-      });
+      // Store in local buffer (extension is source of truth)
+      if (request.tabId) {
+        const buffer = getOrCreateBuffer(request.tabId);
+        addToBuffer(buffer.networkRequests, request, BUFFER_CONFIG.maxNetworkRequests);
+      }
 
       networkRequests.delete(details.requestId);
     }
@@ -565,32 +959,58 @@ browser.runtime.onMessage.addListener((message, sender) => {
     return false;
   }
 
-  // Add tab information
+  const tabId = sender.tab?.id;
+  if (!tabId) return false;
+
+  // Store events in local buffers (extension is source of truth)
+  const buffer = getOrCreateBuffer(tabId, {
+    id: tabId,
+    url: sender.tab?.url,
+    title: sender.tab?.title
+  });
+
+  // Enrich data with context
   const enrichedData = {
     ...data,
     url: sender.tab?.url,
-    frameId: sender.frameId
+    frameId: sender.frameId,
+    timestamp: data.timestamp || Date.now()
   };
 
-  sendToServer({
-    type,
-    tabId: sender.tab?.id,
-    data: enrichedData
-  });
+  switch (type) {
+    case 'console_log':
+      addToBuffer(buffer.consoleLogs, enrichedData, BUFFER_CONFIG.maxConsoleLogs);
+      break;
+
+    case 'js_error':
+      addToBuffer(buffer.jsErrors, enrichedData, BUFFER_CONFIG.maxJSErrors);
+      break;
+
+    case 'websocket_message':
+      addToBuffer(buffer.webSocketMessages, enrichedData, BUFFER_CONFIG.maxWebSocketMessages);
+      break;
+
+    case 'dom_snapshot':
+      addToBuffer(buffer.domSnapshots, enrichedData, BUFFER_CONFIG.maxDOMSnapshots);
+      break;
+
+    default:
+      // Unknown message types are logged but not stored
+      console.warn(`[FoxHole] Unknown message type: ${type}`);
+  }
 
   return false;
 });
 
 // Listen for tab events
 browser.tabs.onCreated.addListener((tab) => {
-  sendToServer({
-    type: 'tab_created',
-    data: {
-      id: tab.id,
-      url: tab.url,
-      title: tab.title,
-      windowId: tab.windowId
-    }
+  // Create buffer for new tab
+  getOrCreateBuffer(tab.id, {
+    id: tab.id,
+    url: tab.url,
+    title: tab.title,
+    active: tab.active,
+    windowId: tab.windowId
   });
 });
 
@@ -598,35 +1018,27 @@ browser.tabs.onRemoved.addListener((tabId, removeInfo) => {
   // Clean up content script tracking
   contentScriptTabs.delete(tabId);
 
-  sendToServer({
-    type: 'tab_closed',
-    data: { tabId, windowId: removeInfo.windowId }
-  });
+  // Remove buffer
+  tabBuffers.delete(tabId);
 });
 
 browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url || changeInfo.title || changeInfo.status) {
-    sendToServer({
-      type: 'tab_updated',
-      data: {
-        id: tab.id,
-        url: tab.url,
-        title: tab.title,
-        status: tab.status,
-        changeInfo
-      }
-    });
+    // Update buffer's tabInfo
+    const buffer = getOrCreateBuffer(tabId);
+    buffer.tabInfo = {
+      id: tab.id,
+      url: tab.url,
+      title: tab.title,
+      active: tab.active,
+      windowId: tab.windowId
+    };
   }
 });
 
 browser.tabs.onActivated.addListener((activeInfo) => {
   // Check content script status for the newly active tab
   checkContentScript(activeInfo.tabId);
-
-  sendToServer({
-    type: 'tab_activated',
-    data: activeInfo
-  });
 });
 
 // Settings state
@@ -653,7 +1065,9 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       sendResponse({
         connectionState,
+        connectedAt,
         serverUrl: SERVER_URL,
+        sessionInfo,
         currentTab: currentTab ? {
           id: currentTab.id,
           url: currentTab.url,
@@ -685,6 +1099,18 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'get_settings') {
     sendResponse(settings);
+    return false;
+  }
+
+  if (message.type === 'get_buffer_stats') {
+    const result = handleGetTabBufferSummary({});
+    sendResponse(result);
+    return false;
+  }
+
+  if (message.type === 'clear_all_buffers') {
+    handleClearBuffer({ clearAll: true });
+    sendResponse({ success: true });
     return false;
   }
 });

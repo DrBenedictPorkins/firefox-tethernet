@@ -79,7 +79,8 @@ claude mcp add foxhole -- node /path/to/foxhole-debug-bridge/server/dist/index.j
 ### Network
 | Tool | Description |
 |------|-------------|
-| `get_network_requests` | Get requests (filter by method, URL pattern, status) |
+| `get_network_requests` | Get request summaries (filter, limit, transform for custom projections) |
+| `get_network_request_detail` | Get full request/response with headers and bodies |
 | `get_websocket_messages` | Get WebSocket traffic |
 
 ### DOM & Content

@@ -94,6 +94,150 @@ Located in `server/src/utils/config.ts`:
 - DOM snapshots: 10 max
 - Screenshots: 5 max
 
+## DOM Inspection Tools
+
+### `dom_stats` - Check page size FIRST
+
+**Always call this before fetching page content to avoid context flooding.**
+
+```typescript
+dom_stats({ tabId?, frameId?, includeTags?: boolean })
+```
+
+Returns: `{ totalElements, maxDepth, htmlSize, iframeCount, formCount, linkCount, imageCount }`
+
+**Example:**
+```javascript
+dom_stats({ includeTags: true })
+// → { totalElements: 2847, htmlSize: 907345, maxDepth: 18, ... }
+// 907KB! Do NOT call get_page_content - use get_dom_structure instead
+```
+
+### `get_dom_structure` - Progressive DOM disclosure (PREFERRED)
+
+**Use this instead of `get_page_content` for large pages.** Explores DOM hierarchy at controlled depth, showing child counts beyond the limit.
+
+```typescript
+get_dom_structure({
+  selector?: string,  // CSS selector to start from (default: 'body')
+  depth?: number,     // How many levels to expand (default: 2)
+  tabId?: number,
+  frameId?: number
+})
+```
+
+**Workflow - Explore page structure progressively:**
+```javascript
+// Step 1: Get top-level structure
+get_dom_structure({ depth: 1 })
+// → <body>
+//     <header id="nav"><!-- 11 children --></header>
+//     <main id="content"><!-- 5 children --></main>
+//     <footer><!-- 2 children --></footer>
+//   </body>
+
+// Step 2: Drill into interesting section
+get_dom_structure({ selector: 'main#content', depth: 2 })
+// → <main id="content">
+//     <div class="hero"><!-- 3 children --></div>
+//     <div class="products"><!-- 48 children --></div>
+//   </main>
+
+// Step 3: Drill deeper into specific area
+get_dom_structure({ selector: '.products', depth: 3 })
+// → Shows product cards structure
+```
+
+**Output format:**
+- Elements show tag, id, class, role, data-testid, href, src attributes
+- Beyond depth limit: `<!-- N children -->` summary
+- Leaf text nodes: inline text preview (truncated at 60 chars)
+- Void elements: self-closing `<img src="..."/>`
+
+**Raw content detection:** If the page is raw JSON/XML/text (single `<pre>` in body), returns:
+```
+Raw JSON content detected (45231 bytes)
+Preview: {"data": [...
+Hint: Use get_page_content for full payload, or query_buffer for network responses
+```
+
+**Real-world example - 99% payload reduction:**
+```
+Paramount+ homepage: 907KB full HTML
+├── dom_stats()                    → 200 bytes (check size)
+├── get_dom_structure({ depth: 1 }) → 3KB (top-level)
+├── get_dom_structure({ selector: 'main', depth: 2 }) → 4KB (35 carousels)
+└── get_dom_structure({ selector: '#products', depth: 3 }) → 2KB (detail)
+Total: ~10KB vs 907KB
+```
+
+### `get_page_content` - Full HTML (USE WITH CAUTION)
+
+**Only use after checking `dom_stats` shows reasonable size (<50KB).**
+
+```typescript
+get_page_content({ tabId?, frameId? })
+```
+
+Returns full `document.documentElement.outerHTML`. Can be 100KB-1MB+ for complex pages.
+
+### `query_selector` - Find elements by CSS selector
+
+```typescript
+query_selector({ selector: string, tabId?, frameId? })
+```
+
+Returns array of matching elements with tag, id, class, attributes.
+
+## Buffer Query API
+
+Single tool for querying all buffered data with JS transforms:
+
+### `query_buffer`
+
+```typescript
+query_buffer({
+  type: 'console' | 'errors' | 'network' | 'websocket',
+  transform: string,  // Required - JS expression applied to data array
+  tabId?: number
+})
+```
+
+**Examples:**
+```javascript
+// Console: last 20 error logs
+query_buffer({ type: 'console', transform: ".filter(l => l.level === 'error').slice(-20)" })
+
+// Errors: extract message and stack
+query_buffer({ type: 'errors', transform: ".map(e => ({ message: e.message, stack: e.stack }))" })
+
+// Network: top 5 slowest requests
+query_buffer({ type: 'network', transform: ".sort((a,b) => b.duration - a.duration).slice(0,5).map(r => ({ url: r.url, duration: r.duration }))" })
+
+// Network: count by domain
+query_buffer({ type: 'network', transform: ".reduce((acc, r) => { const d = new URL(r.url).hostname; acc[d] = (acc[d]||0)+1; return acc }, {})" })
+
+// Network: POST requests with bodies
+query_buffer({ type: 'network', transform: ".filter(r => r.method === 'POST').map(r => ({ url: r.url, body: r.requestBody }))" })
+
+// WebSocket: messages containing 'error'
+query_buffer({ type: 'websocket', transform: ".filter(m => m.data && m.data.includes('error'))" })
+```
+
+**Buffer schemas:**
+- `console`: `{ level, args, timestamp, url }`
+- `errors`: `{ message, source, lineno, colno, stack, timestamp }`
+- `network`: `{ requestId, url, method, statusCode, duration, timestamp, requestHeaders, responseHeaders, requestBody, responseBody }`
+- `websocket`: `{ url, data, direction, timestamp }`
+
+### `get_network_request_detail`
+
+**Purpose:** Full details for a single request (headers + bodies).
+
+**Workflow:**
+1. `query_buffer({ type: 'network', transform: ".filter(r => r.url.includes('api')).slice(-10).map(r => ({id: r.requestId, url: r.url}))" })` → Find interesting requests
+2. `get_network_request_detail({ requestId: "xxx" })` → Get full payload
+
 ## Ollama Integration
 
 Optional local LLM integration for offloading HTML analysis:
@@ -159,3 +303,22 @@ The agent contains:
 4. If needs content script: add to forward list in `extension/background.js`
 5. **Update `agents/foxhole.md`** with tool description and usage examples
 6. Copy updated agent to `~/.claude/agents/foxhole.md`
+
+## Rendering HTML Reports in Browser
+
+When user asks to create a report, render HTML, or display formatted data in the browser:
+
+1. Write HTML content to a temp file: `/tmp/foxhole-report.html`
+2. Navigate to it using `file:///tmp/foxhole-report.html`
+
+```javascript
+// Example workflow:
+// 1. Use Bash/Write tool to create the HTML file
+// 2. Use navigate tool to open it
+navigate({ url: 'file:///tmp/foxhole-report.html' })
+```
+
+**Avoid:**
+- Data URIs (Firefox blocks for top-level navigation)
+- Injecting HTML into unrelated sites (like example.com)
+- about:blank pages (no content script access)

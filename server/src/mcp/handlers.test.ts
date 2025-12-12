@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ToolHandlers } from './handlers.js';
-import { BufferStore } from '../buffer/store.js';
 import { ConnectionManager } from '../connection/manager.js';
 import type { TabInfo, ConsoleLogEntry, NetworkRequest } from '../buffer/types.js';
 
@@ -19,19 +18,13 @@ function createRequest(requestId: string, url: string, method: string, timestamp
 
 describe('ToolHandlers', () => {
   let handlers: ToolHandlers;
-  let bufferStore: BufferStore;
   let connectionManager: ConnectionManager;
   let mockSendToExtension: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    bufferStore = new BufferStore();
     connectionManager = new ConnectionManager();
     mockSendToExtension = vi.fn().mockResolvedValue({ success: true });
-    handlers = new ToolHandlers(bufferStore, mockSendToExtension, connectionManager);
-
-    // Setup some test data
-    bufferStore.updateTab(createTab(1, 'https://example.com', 'Test', true));
-    bufferStore.updateTab(createTab(2, 'https://other.com', 'Other', false));
+    handlers = new ToolHandlers(mockSendToExtension, connectionManager);
   });
 
   describe('Tab Management', () => {
@@ -65,6 +58,11 @@ describe('ToolHandlers', () => {
     });
 
     it('get_primary_tab should return tab info after setting', async () => {
+      const mockTabs = [
+        { id: 1, url: 'https://example.com', title: 'Test', active: true },
+      ];
+      mockSendToExtension.mockResolvedValueOnce(mockTabs);
+
       await handlers.handle('set_primary_tab', { tabId: 1 });
       const result = await handlers.handle('get_primary_tab', {});
 
@@ -84,11 +82,10 @@ describe('ToolHandlers', () => {
       });
     });
 
-    it('close_tab should remove tab from buffer', async () => {
+    it('close_tab should call extension', async () => {
       await handlers.handle('close_tab', { tabId: 1 });
 
       expect(mockSendToExtension).toHaveBeenCalledWith('close_tab', { tabId: 1 });
-      expect(bufferStore.getTab(1)).toBeUndefined();
     });
 
     it('close_tab should clear primary if closing primary tab', async () => {
@@ -103,92 +100,160 @@ describe('ToolHandlers', () => {
 
   describe('Primary Tab Requirement', () => {
     it('should error when no primary tab set and tabId not provided', async () => {
-      const result = await handlers.handle('get_console_logs', {});
+      const result = await handlers.handle('query_buffer', { type: 'console', transform: '' });
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('No tab specified');
     });
 
     it('should use explicit tabId even without primary', async () => {
-      bufferStore.addConsoleLog(1, createLog('log', Date.now()));
+      const mockLogs = [createLog('log', Date.now())];
+      mockSendToExtension.mockResolvedValueOnce(mockLogs);
 
-      const result = await handlers.handle('get_console_logs', { tabId: 1 });
+      const result = await handlers.handle('query_buffer', { type: 'console', transform: '', tabId: 1 });
 
       expect(result.isError).toBeFalsy();
-      const data = JSON.parse(result.content[0].text);
-      expect(data).toHaveLength(1);
+      expect(mockSendToExtension).toHaveBeenCalledWith('query_buffer', {
+        tabId: 1,
+        type: 'console',
+        transform: '',
+      });
     });
 
     it('should use primary tab when tabId not provided', async () => {
       await handlers.handle('set_primary_tab', { tabId: 1 });
-      bufferStore.addConsoleLog(1, createLog('log', Date.now()));
+      const mockLogs = [createLog('log', Date.now())];
+      mockSendToExtension.mockResolvedValueOnce(mockLogs);
 
-      const result = await handlers.handle('get_console_logs', {});
+      const result = await handlers.handle('query_buffer', { type: 'console', transform: '' });
 
       expect(result.isError).toBeFalsy();
-      const data = JSON.parse(result.content[0].text);
-      expect(data).toHaveLength(1);
+      expect(mockSendToExtension).toHaveBeenCalledWith('query_buffer', {
+        tabId: 1,
+        type: 'console',
+        transform: '',
+      });
     });
   });
 
-  describe('Console Logs', () => {
+  describe('Console Logs via query_buffer', () => {
     beforeEach(async () => {
       await handlers.handle('set_primary_tab', { tabId: 1 });
-      bufferStore.addConsoleLog(1, createLog('log', 1));
-      bufferStore.addConsoleLog(1, createLog('error', 2));
-      bufferStore.addConsoleLog(1, createLog('warn', 3));
     });
 
-    it('get_console_logs should return all logs', async () => {
-      const result = await handlers.handle('get_console_logs', {});
+    it('query_buffer console should forward to extension', async () => {
+      const mockLogs = [createLog('log', 1), createLog('error', 2), createLog('warn', 3)];
+      mockSendToExtension.mockResolvedValueOnce(mockLogs);
 
+      const result = await handlers.handle('query_buffer', { type: 'console', transform: '' });
+
+      expect(mockSendToExtension).toHaveBeenCalledWith('query_buffer', {
+        tabId: 1,
+        type: 'console',
+        transform: '',
+      });
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(3);
     });
 
-    it('get_console_logs should filter by level', async () => {
-      const result = await handlers.handle('get_console_logs', { level: 'error' });
+    it('query_buffer console should forward transform to extension', async () => {
+      const mockFilteredLogs = [createLog('error', 2)];
+      mockSendToExtension.mockResolvedValueOnce(mockFilteredLogs);
 
+      const result = await handlers.handle('query_buffer', {
+        type: 'console',
+        transform: ".filter(l => l.level === 'error')",
+      });
+
+      expect(mockSendToExtension).toHaveBeenCalledWith('query_buffer', {
+        tabId: 1,
+        type: 'console',
+        transform: ".filter(l => l.level === 'error')",
+      });
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(1);
       expect(data[0].level).toBe('error');
     });
 
-    it('get_console_logs should respect limit', async () => {
-      const result = await handlers.handle('get_console_logs', { limit: 2 });
+    it('query_buffer console should forward limit transform to extension', async () => {
+      const mockLimitedLogs = [createLog('log', 1), createLog('error', 2)];
+      mockSendToExtension.mockResolvedValueOnce(mockLimitedLogs);
 
+      const result = await handlers.handle('query_buffer', {
+        type: 'console',
+        transform: '.slice(0, 2)',
+      });
+
+      expect(mockSendToExtension).toHaveBeenCalledWith('query_buffer', {
+        tabId: 1,
+        type: 'console',
+        transform: '.slice(0, 2)',
+      });
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(2);
     });
   });
 
-  describe('Network Requests', () => {
+  describe('Network Requests via query_buffer', () => {
     beforeEach(async () => {
       await handlers.handle('set_primary_tab', { tabId: 1 });
-      bufferStore.addNetworkRequest(1, createRequest('r1', 'https://api.com/users', 'GET', 1));
-      bufferStore.addNetworkRequest(1, createRequest('r2', 'https://api.com/posts', 'POST', 2));
-      bufferStore.updateNetworkResponse(1, 'r1', { statusCode: 200 });
-      bufferStore.updateNetworkResponse(1, 'r2', { statusCode: 201 });
     });
 
-    it('get_network_requests should return all requests', async () => {
-      const result = await handlers.handle('get_network_requests', {});
+    it('query_buffer network should forward to extension', async () => {
+      const mockRequests = [
+        { ...createRequest('r1', 'https://api.com/users', 'GET', 1), statusCode: 200 },
+        { ...createRequest('r2', 'https://api.com/posts', 'POST', 2), statusCode: 201 },
+      ];
+      mockSendToExtension.mockResolvedValueOnce(mockRequests);
 
+      const result = await handlers.handle('query_buffer', { type: 'network', transform: '' });
+
+      expect(mockSendToExtension).toHaveBeenCalledWith('query_buffer', {
+        tabId: 1,
+        type: 'network',
+        transform: '',
+      });
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(2);
     });
 
-    it('get_network_requests should filter by method', async () => {
-      const result = await handlers.handle('get_network_requests', { method: 'POST' });
+    it('query_buffer network should forward method filter transform to extension', async () => {
+      const mockFilteredRequests = [
+        { ...createRequest('r2', 'https://api.com/posts', 'POST', 2), statusCode: 201 },
+      ];
+      mockSendToExtension.mockResolvedValueOnce(mockFilteredRequests);
 
+      const result = await handlers.handle('query_buffer', {
+        type: 'network',
+        transform: ".filter(r => r.method === 'POST')",
+      });
+
+      expect(mockSendToExtension).toHaveBeenCalledWith('query_buffer', {
+        tabId: 1,
+        type: 'network',
+        transform: ".filter(r => r.method === 'POST')",
+      });
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(1);
       expect(data[0].method).toBe('POST');
     });
 
-    it('get_network_requests should filter by URL pattern', async () => {
-      const result = await handlers.handle('get_network_requests', { urlPattern: 'users' });
+    it('query_buffer network should forward URL filter transform to extension', async () => {
+      const mockFilteredRequests = [
+        { ...createRequest('r1', 'https://api.com/users', 'GET', 1), statusCode: 200 },
+      ];
+      mockSendToExtension.mockResolvedValueOnce(mockFilteredRequests);
 
+      const result = await handlers.handle('query_buffer', {
+        type: 'network',
+        transform: ".filter(r => r.url.includes('users'))",
+      });
+
+      expect(mockSendToExtension).toHaveBeenCalledWith('query_buffer', {
+        tabId: 1,
+        type: 'network',
+        transform: ".filter(r => r.url.includes('users'))",
+      });
       const data = JSON.parse(result.content[0].text);
       expect(data).toHaveLength(1);
       expect(data[0].url).toContain('users');
@@ -249,26 +314,43 @@ describe('ToolHandlers', () => {
   describe('Buffer Management', () => {
     beforeEach(async () => {
       await handlers.handle('set_primary_tab', { tabId: 1 });
-      bufferStore.addConsoleLog(1, createLog('log', 1));
-      bufferStore.addNetworkRequest(1, createRequest('r1', '/api', 'GET', 1));
     });
 
-    it('clear_buffer should clear specified buffer', async () => {
+    it('clear_buffer should forward to extension', async () => {
+      mockSendToExtension.mockResolvedValueOnce({ success: true });
+
       await handlers.handle('clear_buffer', { tabId: 1, dataType: 'console' });
 
-      expect(bufferStore.getConsoleLogs(1)).toHaveLength(0);
-      expect(bufferStore.getNetworkRequests(1)).toHaveLength(1);
+      expect(mockSendToExtension).toHaveBeenCalledWith('clear_buffer', {
+        tabId: 1,
+        dataType: 'console',
+      });
     });
 
-    it('get_buffer_stats should return statistics', async () => {
+    it('get_buffer_stats should forward to extension', async () => {
+      const mockStats = {
+        totalTabs: 2,
+        bufferSizes: {
+          1: { consoleLogs: 1, networkRequests: 1, jsErrors: 0, websocket: 0 },
+          2: { consoleLogs: 0, networkRequests: 0, jsErrors: 0, websocket: 0 },
+        },
+      };
+      mockSendToExtension.mockResolvedValueOnce(mockStats);
+
       const result = await handlers.handle('get_buffer_stats', {});
 
+      expect(mockSendToExtension).toHaveBeenCalledWith('get_tab_buffer_summary', {});
       const data = JSON.parse(result.content[0].text);
       expect(data.totalTabs).toBe(2);
       expect(data.bufferSizes[1].consoleLogs).toBe(1);
     });
 
     it('get_connection_status should return status info', async () => {
+      mockSendToExtension.mockResolvedValueOnce([
+        { id: 1, url: 'https://example.com', title: 'Test' },
+        { id: 2, url: 'https://other.com', title: 'Other' },
+      ]);
+
       const result = await handlers.handle('get_connection_status', {});
 
       const data = JSON.parse(result.content[0].text);
@@ -281,6 +363,9 @@ describe('ToolHandlers', () => {
     it('get_connection_status should reflect actual connection state', async () => {
       // Simulate extension connected (passing null disconnects, any truthy value connects)
       connectionManager.setExtensionConnected({} as any);
+      mockSendToExtension.mockResolvedValueOnce([
+        { id: 1, url: 'https://example.com', title: 'Test' },
+      ]);
 
       const result = await handlers.handle('get_connection_status', {});
 

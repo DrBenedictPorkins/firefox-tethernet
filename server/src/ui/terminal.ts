@@ -1,5 +1,4 @@
 // Terminal UI is not used in stdio mode - this is a no-op stub for compatibility
-import type { BufferStore } from '../buffer/store.js';
 
 export interface ConnectionState {
   extensionConnected: boolean;
@@ -7,7 +6,7 @@ export interface ConnectionState {
 }
 
 export class TerminalUI {
-  constructor(_bufferStore: BufferStore) {}
+  constructor() {}
 
   start(): void {}
   stop(): void {}

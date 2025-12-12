@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
 import type { Server as HTTPServer } from 'http';
-import type { BufferStore } from '../buffer/store.js';
 import type { ConnectionManager } from './manager.js';
 import type { ExtensionRequest, ExtensionResponse } from '../mcp/types.js';
 import { CONFIG } from '../utils/config.js';
@@ -19,7 +19,6 @@ export class ExtensionConnectionHandler {
 
   constructor(
     httpServer: HTTPServer,
-    private bufferStore: BufferStore,
     private connectionManager: ConnectionManager
   ) {
     this.wss = new WebSocketServer({
@@ -40,6 +39,19 @@ export class ExtensionConnectionHandler {
 
     this.ws = socket;
     this.connectionManager.setExtensionConnected(socket);
+
+    // Send session info to extension
+    const sessionInfo = {
+      type: 'session_info',
+      data: {
+        pid: process.pid,
+        cwd: process.cwd(),
+        projectName: path.basename(process.cwd()),
+        connectedAt: Date.now(),
+        port: CONFIG.port
+      }
+    };
+    socket.send(JSON.stringify(sessionInfo));
 
     socket.on('message', (data: Buffer) => {
       this.handleMessage(data);
@@ -106,67 +118,12 @@ export class ExtensionConnectionHandler {
   private handleExtensionEvent(message: any): void {
     const { type, data, tabId } = message;
 
-    if (!tabId) {
-      console.warn('Received message without tabId:', type);
-      return;
-    }
+    // Extension now owns all buffered data - server is stateless
+    // Events from extension are no longer stored here
+    // This method is kept for potential future event logging/monitoring
 
-    switch (type) {
-      case 'console_log':
-        this.bufferStore.addConsoleLog(tabId, data);
-        break;
-
-      case 'network_request':
-        this.bufferStore.addNetworkRequest(tabId, data);
-        break;
-
-      case 'network_response':
-        this.bufferStore.updateNetworkResponse(tabId, data.requestId, data);
-        break;
-
-      case 'websocket_message':
-        this.bufferStore.addWebSocketMessage(tabId, data);
-        break;
-
-      case 'js_error':
-        this.bufferStore.addJSError(tabId, data);
-        break;
-
-      case 'dom_snapshot':
-        this.bufferStore.addDOMSnapshot(tabId, data);
-        break;
-
-      case 'screenshot':
-        this.bufferStore.addScreenshot(tabId, data);
-        break;
-
-      case 'storage_data':
-        this.bufferStore.setStorageData(tabId, data);
-        break;
-
-      case 'cookies':
-        this.bufferStore.setCookies(tabId, data);
-        break;
-
-      case 'performance_metrics':
-        this.bufferStore.addPerformanceMetrics(tabId, data);
-        break;
-
-      case 'tab_updated':
-        this.bufferStore.updateTab(data);
-        break;
-
-      case 'tab_removed':
-        this.bufferStore.removeTab(tabId);
-        break;
-
-      case 'tabs_list':
-        this.bufferStore.setTabs(data);
-        break;
-
-      default:
-        console.warn('Unknown message type:', type);
-    }
+    // Log unknown message types for debugging
+    console.warn('Received extension event (server is stateless):', type);
   }
 
   sendToExtension(action: string, params: any): Promise<any> {

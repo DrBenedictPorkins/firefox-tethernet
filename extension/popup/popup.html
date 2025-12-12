@@ -22,18 +22,30 @@
     </div>
 
     <div class="status-section">
-      <div class="status-label">Status:</div>
-      <div id="status" class="status-badge disconnected">Disconnected</div>
+      <div class="status-row">
+        <div class="status-label">Status:</div>
+        <div id="status" class="status-badge disconnected">Disconnected</div>
+      </div>
+      <div id="connection-time" class="connection-time hidden"></div>
+    </div>
+
+    <div class="session-section">
+      <div class="session-header">
+        <span class="info-label">Session</span>
+      </div>
+      <div id="session-info" class="session-info">
+        <span class="session-none">No session connected</span>
+      </div>
     </div>
 
     <div class="info-section">
       <div class="info-row">
-        <span class="info-label">Server:</span>
-        <span id="server-url" class="info-value">ws://localhost:19888</span>
+        <span class="info-label">Port:</span>
+        <span id="server-port" class="info-value">19888</span>
       </div>
       <div class="info-row">
-        <span class="info-label">Version:</span>
-        <span class="info-value">1.0.0</span>
+        <span class="info-label">Tabs:</span>
+        <span id="tabs-count" class="info-value">0</span>
       </div>
     </div>
 
@@ -46,6 +58,31 @@
       <div id="reload-notice" class="reload-notice hidden">
         <span>Content script not loaded</span>
         <button id="reload-btn" class="reload-btn">Reload Page</button>
+      </div>
+    </div>
+
+    <div class="buffer-section">
+      <div class="buffer-header">
+        <span class="info-label">Buffer Stats</span>
+        <button id="clear-buffers-btn" class="clear-btn">Clear All</button>
+      </div>
+      <div class="buffer-grid">
+        <div class="buffer-stat">
+          <span class="buffer-count" id="console-count">0</span>
+          <span class="buffer-label">Console</span>
+        </div>
+        <div class="buffer-stat">
+          <span class="buffer-count" id="network-count">0</span>
+          <span class="buffer-label">Network</span>
+        </div>
+        <div class="buffer-stat">
+          <span class="buffer-count" id="errors-count">0</span>
+          <span class="buffer-label">Errors</span>
+        </div>
+        <div class="buffer-stat">
+          <span class="buffer-count" id="websocket-count">0</span>
+          <span class="buffer-label">WebSocket</span>
+        </div>
       </div>
     </div>
 

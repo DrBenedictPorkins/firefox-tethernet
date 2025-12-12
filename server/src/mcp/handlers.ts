@@ -1,6 +1,5 @@
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
-import type { BufferStore } from '../buffer/store.js';
 import type { ConnectionManager } from '../connection/manager.js';
 import type { MCPToolResult } from './types.js';
 import { ollamaConfig } from '../utils/config.js';
@@ -10,15 +9,13 @@ export class ToolHandlers {
   private primaryTabId: number | null = null;
 
   constructor(
-    private bufferStore: BufferStore,
     private sendToExtension: (action: string, params: any) => Promise<any>,
     private connectionManager: ConnectionManager
   ) {
-    // Clear primaryTabId and buffers when extension disconnects
+    // Clear primaryTabId when extension disconnects
     this.connectionManager.onChange((state) => {
       if (!state.extensionConnected) {
         this.primaryTabId = null;
-        this.bufferStore.clearAllBuffers();
       }
     });
   }
@@ -88,9 +85,12 @@ export class ToolHandlers {
           if (this.primaryTabId === null) {
             return this.success(null);
           }
+          // Get tab info from extension
+          const tabs = await this.sendToExtension('list_tabs', {});
+          const tabInfo = Array.isArray(tabs) ? tabs.find((t: any) => t.id === this.primaryTabId) : null;
           return this.success({
             primaryTabId: this.primaryTabId,
-            tabInfo: this.bufferStore.getTab(this.primaryTabId),
+            tabInfo,
           });
 
         case 'create_tab': {
@@ -103,7 +103,6 @@ export class ToolHandlers {
 
         case 'close_tab':
           await this.sendToExtension('close_tab', { tabId: args.tabId });
-          this.bufferStore.removeTab(args.tabId);
           if (this.primaryTabId === args.tabId) {
             this.primaryTabId = null;
           }
@@ -137,42 +136,25 @@ export class ToolHandlers {
           return this.success({ navigated: 'forward' });
         }
 
-        // Console & Errors
-        case 'get_console_logs': {
+        // Buffer Query (consolidated) - Forward to extension
+        case 'query_buffer': {
           const tabId = this.ensureTabId(args.tabId);
-          const logs = this.bufferStore.getConsoleLogs(
+          const result = await this.sendToExtension('query_buffer', {
             tabId,
-            args.level,
-            args.limit
-          );
-          return this.success(logs);
-        }
-
-        case 'get_js_errors': {
-          const tabId = this.ensureTabId(args.tabId);
-          const errors = this.bufferStore.getJSErrors(tabId, args.limit);
-          return this.success(errors);
-        }
-
-        // Network Monitoring
-        case 'get_network_requests': {
-          const tabId = this.ensureTabId(args.tabId);
-          const requests = this.bufferStore.getNetworkRequests(tabId, {
-            method: args.method,
-            urlPattern: args.urlPattern,
-            statusCode: args.statusCode,
+            type: args.type,
+            transform: args.transform,
           });
-          return this.success(requests);
+          return this.success(result);
         }
 
-        case 'get_websocket_messages': {
+        // Network Detail (single item lookup) - Forward to extension
+        case 'get_network_request_detail': {
           const tabId = this.ensureTabId(args.tabId);
-          const messages = this.bufferStore.getWebSocketMessages(
+          const result = await this.sendToExtension('get_network_request_detail', {
             tabId,
-            args.url,
-            args.limit
-          );
-          return this.success(messages);
+            requestId: args.requestId,
+          });
+          return this.success(result);
         }
 
         // DOM & Content
@@ -222,10 +204,171 @@ export class ToolHandlers {
           return this.success(result);
         }
 
+        case 'get_dom_structure': {
+          const tabId = this.ensureTabId(args.tabId);
+          const selector = args.selector || 'body';
+          const maxDepth = args.depth ?? 2;
+
+          const result = await this.sendToExtension('execute_script', {
+            tabId,
+            frameId: args.frameId,
+            script: `(function() {
+              const selector = ${JSON.stringify(selector)};
+              const maxDepth = ${maxDepth};
+
+              // Detect raw content (JSON/text/XML viewed directly in browser)
+              const body = document.body;
+              if (selector === 'body' && body.children.length === 1 && body.children[0].tagName === 'PRE') {
+                const content = body.textContent || '';
+                const size = content.length;
+                let contentType = 'text';
+
+                // Detect JSON
+                const trimmed = content.trim();
+                if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                    (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                  try {
+                    JSON.parse(trimmed);
+                    contentType = 'json';
+                  } catch {}
+                }
+                // Detect XML
+                else if (trimmed.startsWith('<?xml') || (trimmed.startsWith('<') && trimmed.includes('</'))) {
+                  contentType = 'xml';
+                }
+
+                return {
+                  raw_content: true,
+                  contentType: contentType,
+                  size: size,
+                  preview: content.slice(0, 500) + (size > 500 ? '...' : ''),
+                  hint: 'Use get_page_content for full payload, or query_buffer for network responses'
+                };
+              }
+
+              // Attributes to include in output
+              const showAttrs = ['id', 'class', 'role', 'data-testid', 'type', 'name', 'href', 'src'];
+
+              function getAttrsString(el) {
+                let attrs = '';
+                for (const attr of showAttrs) {
+                  let val = el.getAttribute(attr);
+                  if (val) {
+                    // Truncate long class lists
+                    if (attr === 'class' && val.length > 60) {
+                      val = val.slice(0, 57) + '...';
+                    }
+                    // Truncate long hrefs/srcs
+                    if ((attr === 'href' || attr === 'src') && val.length > 80) {
+                      val = val.slice(0, 77) + '...';
+                    }
+                    attrs += ' ' + attr + '="' + val.replace(/"/g, '&quot;') + '"';
+                  }
+                }
+                return attrs;
+              }
+
+              function summarize(node, depth, indent) {
+                // Skip non-element nodes at top level of output
+                if (node.nodeType !== 1) return null;
+
+                const el = node;
+                const tag = el.tagName.toLowerCase();
+                const attrs = getAttrsString(el);
+                const spaces = '  '.repeat(indent);
+
+                // Count direct element children
+                const elementChildren = Array.from(el.children);
+                const childCount = elementChildren.length;
+
+                // Get direct text content (not from descendants)
+                let directText = '';
+                for (const child of el.childNodes) {
+                  if (child.nodeType === 3) { // TEXT_NODE
+                    directText += child.textContent;
+                  }
+                }
+                directText = directText.trim();
+
+                // Void elements (self-closing)
+                const voidTags = ['area','base','br','col','embed','hr','img','input','link','meta','source','track','wbr'];
+                if (voidTags.includes(tag)) {
+                  return spaces + '<' + tag + attrs + '/>';
+                }
+
+                // At max depth - summarize children
+                if (depth >= maxDepth) {
+                  if (childCount > 0) {
+                    return spaces + '<' + tag + attrs + '><!-- ' + childCount + ' children --></' + tag + '>';
+                  } else if (directText.length > 0) {
+                    const preview = directText.length > 60 ? directText.slice(0, 57) + '...' : directText;
+                    return spaces + '<' + tag + attrs + '>' + preview + '</' + tag + '>';
+                  } else {
+                    return spaces + '<' + tag + attrs + '></' + tag + '>';
+                  }
+                }
+
+                // Recurse into children
+                const childResults = [];
+                for (const child of elementChildren) {
+                  const result = summarize(child, depth + 1, indent + 1);
+                  if (result) childResults.push(result);
+                }
+
+                // Build output
+                if (childResults.length === 0) {
+                  // No element children - show text if any
+                  if (directText.length > 0) {
+                    const preview = directText.length > 60 ? directText.slice(0, 57) + '...' : directText;
+                    return spaces + '<' + tag + attrs + '>' + preview + '</' + tag + '>';
+                  }
+                  return spaces + '<' + tag + attrs + '></' + tag + '>';
+                }
+
+                return spaces + '<' + tag + attrs + '>\\n' + childResults.join('\\n') + '\\n' + spaces + '</' + tag + '>';
+              }
+
+              const root = document.querySelector(selector);
+              if (!root) {
+                return { error: 'Selector not found', selector: selector };
+              }
+
+              return {
+                structure: summarize(root, 0, 0),
+                selector: selector,
+                depth: maxDepth
+              };
+            })()`,
+          });
+
+          // Return the structure as plain text for readability
+          const data = result?.result || result;
+
+          // Handle raw content detection
+          if (data?.raw_content) {
+            return {
+              content: [{
+                type: 'text',
+                text: `Raw ${data.contentType.toUpperCase()} content detected (${data.size} bytes)\n\nPreview:\n${data.preview}\n\nHint: ${data.hint}`,
+              }],
+            };
+          }
+
+          if (data?.structure) {
+            return {
+              content: [{
+                type: 'text',
+                text: `DOM Structure (selector: ${data.selector}, depth: ${data.depth}):\n\n${data.structure}`,
+              }],
+            };
+          }
+          return this.success(data);
+        }
+
         case 'get_dom_snapshot': {
           const tabId = this.ensureTabId(args.tabId);
-          const snapshots = this.bufferStore.getDOMSnapshots(tabId);
-          return this.success(snapshots);
+          const result = await this.sendToExtension('get_dom_snapshot', { tabId });
+          return this.success(result);
         }
 
         case 'query_selector': {
@@ -333,8 +476,8 @@ export class ToolHandlers {
 
         case 'get_screenshots': {
           const tabId = this.ensureTabId(args.tabId);
-          const screenshots = this.bufferStore.getScreenshots(tabId);
-          return this.success(screenshots);
+          const result = await this.sendToExtension('get_screenshots', { tabId });
+          return this.success(result);
         }
 
         // Storage & Cookies
@@ -394,6 +537,13 @@ export class ToolHandlers {
         }
 
         // Script Execution
+        case 'execute_background_script': {
+          const result = await this.sendToExtension('execute_background_script', {
+            code: args.code,
+          });
+          return this.success(result);
+        }
+
         case 'execute_script': {
           const tabId = this.ensureTabId(args.tabId);
           const result = await this.sendToExtension('execute_script', {
@@ -406,62 +556,37 @@ export class ToolHandlers {
           return this.success(result);
         }
 
-        case 'evaluate_expression': {
+
+        // Buffer Management - Forward to extension
+        case 'clear_buffer': {
           const tabId = this.ensureTabId(args.tabId);
-          // Extension uses execute_script with eval() for both execute and evaluate
-          const result = await this.sendToExtension('execute_script', {
+          await this.sendToExtension('clear_buffer', {
             tabId,
-            script: args.expression,
-            frameId: args.frameId,
-            preview: args.preview,
-            force: args.force,
+            dataType: args.dataType,
           });
-          return this.success(result);
-        }
-
-        // Performance
-        case 'get_performance_metrics': {
-          const tabId = this.ensureTabId(args.tabId);
-          const metrics = this.bufferStore.getPerformanceMetrics(tabId);
-          return this.success(metrics);
-        }
-
-        case 'measure_performance': {
-          // Not yet implemented in extension - use execute_script to get performance data
-          const tabId = this.ensureTabId(args.tabId);
-          const result = await this.sendToExtension('execute_script', {
-            tabId,
-            script: `({
-              timing: performance.timing ? {
-                loadTime: performance.timing.loadEventEnd - performance.timing.navigationStart,
-                domReady: performance.timing.domContentLoadedEventEnd - performance.timing.navigationStart,
-                firstByte: performance.timing.responseStart - performance.timing.navigationStart
-              } : null,
-              memory: performance.memory ? {
-                usedJSHeapSize: performance.memory.usedJSHeapSize,
-                totalJSHeapSize: performance.memory.totalJSHeapSize
-              } : null,
-              navigation: performance.getEntriesByType('navigation')[0] || null
-            })`,
-          });
-          return this.success(result);
-        }
-
-        // Buffer Management
-        case 'clear_buffer':
-          this.bufferStore.clearBuffer(args.tabId, args.dataType);
           return this.success({ cleared: true, tabId: args.tabId });
+        }
 
-        case 'get_buffer_stats':
-          return this.success(this.bufferStore.getStats());
+        case 'get_buffer_stats': {
+          const result = await this.sendToExtension('get_tab_buffer_summary', {});
+          return this.success(result);
+        }
 
         // Connection Status
         case 'get_connection_status': {
           const ollamaAvailable = ollamaConfig.enabled ? await checkOllamaConnection() : false;
+          // Get tab count from extension
+          let tabCount = 0;
+          try {
+            const tabs = await this.sendToExtension('list_tabs', {});
+            tabCount = Array.isArray(tabs) ? tabs.length : 0;
+          } catch (e) {
+            // Extension not connected, tabCount remains 0
+          }
           return this.success({
             extensionConnected: this.connectionManager.getState().extensionConnected,
             primaryTabId: this.primaryTabId,
-            tabCount: this.bufferStore.getTabCount(),
+            tabCount,
             ollamaEnabled: ollamaConfig.enabled,
             ollamaAvailable,
             ollamaBaseUrl: ollamaConfig.enabled ? ollamaConfig.baseUrl : null,

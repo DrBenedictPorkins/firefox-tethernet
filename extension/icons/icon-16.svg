@@ -1,4 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <circle cx="8" cy="8" r="7" fill="#ff6b35"/>
-  <circle cx="8" cy="8" r="4" fill="#1a1a2e"/>
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Hole (dark circle with subtle border) -->
+  <circle cx="8" cy="9" r="6" fill="#2a2a3e"/>
+  <circle cx="8" cy="9" r="6" stroke="#ff6b35" stroke-width="0.5" stroke-opacity="0.5"/>
+
+  <!-- Fox ears -->
+  <path d="M3 4 L5.5 8 L3 8 Z" fill="#ff6b35"/>
+  <path d="M13 4 L10.5 8 L13 8 Z" fill="#ff6b35"/>
+
+  <!-- Eyes -->
+  <circle cx="5.5" cy="9" r="1.8" fill="#fff"/>
+  <circle cx="10.5" cy="9" r="1.8" fill="#fff"/>
+  <circle cx="5.8" cy="9" r="0.9" fill="#1a1a2e"/>
+  <circle cx="10.8" cy="9" r="0.9" fill="#1a1a2e"/>
+
+  <!-- Nose/snout -->
+  <ellipse cx="8" cy="12" rx="2" ry="1.2" fill="#ff6b35"/>
 </svg>
