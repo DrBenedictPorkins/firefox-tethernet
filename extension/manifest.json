@@ -1,12 +1,12 @@
 {
   "manifest_version": 2,
-  "name": "FoxHole Debug Bridge",
+  "name": "Tethernet",
   "version": "1.0.0",
-  "description": "Connect Firefox to FoxHole server for remote debugging and automation",
+  "description": "Connect Firefox to Tethernet for browser automation and inspection",
 
   "browser_specific_settings": {
     "gecko": {
-      "id": "foxhole@localhost",
+      "id": "tethernet@localhost",
       "strict_min_version": "91.0"
     }
   },
@@ -51,7 +51,7 @@
       "48": "icons/icon-48.png",
       "96": "icons/icon-96.png"
     },
-    "default_title": "FoxHole Debug Bridge"
+    "default_title": "Tethernet"
   },
 
   "devtools_page": "devtools/devtools.html",

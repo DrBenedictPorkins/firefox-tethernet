@@ -1,5 +1,5 @@
 /**
- * FoxHole Content Script
+ * Tethernet Content Script
  * Intercepts console, errors, and WebSocket messages
  * Handles DOM manipulation commands from background script
  */
@@ -8,10 +8,10 @@
   'use strict';
 
   // Prevent multiple injections
-  if (window.__foxhole_injected) {
+  if (window.__tethernet_injected) {
     return;
   }
-  window.__foxhole_injected = true;
+  window.__tethernet_injected = true;
 
   // Settings - default to capturing source (on by default)
   let captureLogSource = true;
@@ -20,7 +20,7 @@
   browser.storage.local.get('captureLogSource').then(result => {
     captureLogSource = result.captureLogSource !== false;
     // Update the page script setting
-    window.postMessage({ type: '__foxhole_setting', captureLogSource }, '*');
+    window.postMessage({ type: '__tethernet_setting', captureLogSource }, '*');
   }).catch(() => {
     // Ignore errors, use default
   });
@@ -28,7 +28,7 @@
   // Listen for console logs from page context
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
-    if (event.data?.type === '__foxhole_console') {
+    if (event.data?.type === '__tethernet_console') {
       try {
         browser.runtime.sendMessage({
           type: 'console_log',
@@ -43,15 +43,15 @@
   // Inject console hook into page context
   const pageScript = `
 (function() {
-  if (window.__foxhole_page_injected) return;
-  window.__foxhole_page_injected = true;
+  if (window.__tethernet_page_injected) return;
+  window.__tethernet_page_injected = true;
 
   let captureLogSource = true;
 
   // Listen for setting updates from content script
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
-    if (event.data?.type === '__foxhole_setting' && 'captureLogSource' in event.data) {
+    if (event.data?.type === '__tethernet_setting' && 'captureLogSource' in event.data) {
       captureLogSource = event.data.captureLogSource;
     }
   });
@@ -78,7 +78,7 @@
               const line = lines[i].trim();
               if (!line) continue;
               // Skip our injected script
-              if (line.includes('__foxhole')) continue;
+              if (line.includes('__tethernet')) continue;
 
               let match = line.match(/@(.+):(\\d+):(\\d+)$/);
               if (!match) match = line.match(/\\((.+):(\\d+):(\\d+)\\)$/);
@@ -95,7 +95,7 @@
 
       try {
         window.postMessage({
-          type: '__foxhole_console',
+          type: '__tethernet_console',
           data: {
             level,
             args: args.map(arg => {
@@ -318,7 +318,7 @@
         if ('captureLogSource' in params) {
           captureLogSource = params.captureLogSource;
           // Also update the page script
-          window.postMessage({ type: '__foxhole_setting', captureLogSource: params.captureLogSource }, '*');
+          window.postMessage({ type: '__tethernet_setting', captureLogSource: params.captureLogSource }, '*');
         }
         return { success: true };
 
@@ -627,5 +627,5 @@
     // Ignore errors if background script isn't ready yet
   });
 
-  console.log('[FoxHole] Content script initialized');
+  console.log('[Tethernet] Content script initialized');
 })();

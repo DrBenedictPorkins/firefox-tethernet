@@ -5,7 +5,6 @@
 
 const statusElement = document.getElementById('status');
 const sessionInfoElement = document.getElementById('session-info');
-const serverPortElement = document.getElementById('server-port');
 const tabsCountElement = document.getElementById('tabs-count');
 const captureSourceToggle = document.getElementById('capture-source-toggle');
 const sourceWarning = document.getElementById('source-warning');
@@ -15,6 +14,7 @@ const reloadNotice = document.getElementById('reload-notice');
 const reloadBtn = document.getElementById('reload-btn');
 const connectionTimeElement = document.getElementById('connection-time');
 const clearBuffersBtn = document.getElementById('clear-buffers-btn');
+const disconnectBtn = document.getElementById('disconnect-btn');
 const consoleCountEl = document.getElementById('console-count');
 const networkCountEl = document.getElementById('network-count');
 const errorsCountEl = document.getElementById('errors-count');
@@ -80,24 +80,26 @@ function updateSessionInfo(session) {
   `;
 }
 
-function updateStatus(state, serverUrl, timestamp) {
+function updateConnectSection(state) {
+  if (state === 'connected') {
+    connectForm.classList.add('hidden');
+    disconnectBtn.classList.remove('hidden');
+  } else {
+    connectForm.classList.remove('hidden');
+    disconnectBtn.classList.add('hidden');
+    connectBtn.textContent = state === 'connecting' ? 'Connecting...' : 'Connect';
+  }
+}
+
+function updateStatus(state, _serverUrl, timestamp) {
   const config = statusConfig[state] || statusConfig.disconnected;
 
   statusElement.textContent = config.text;
   statusElement.className = `status-badge ${config.class}`;
 
-  // Extract port from server URL
-  if (serverUrl) {
-    try {
-      const url = new URL(serverUrl);
-      serverPortElement.textContent = url.port || '19888';
-    } catch {
-      serverPortElement.textContent = '19888';
-    }
-  }
-
   connectedAt = timestamp;
   updateConnectionTime();
+  updateConnectSection(state);
 
   // Start/stop timer for updating duration
   if (updateTimer) {
@@ -164,6 +166,47 @@ browser.storage.local.get('captureLogSource').then(result => {
   updateWarningVisibility(isEnabled);
 });
 
+// Connect section
+const connectForm = document.querySelector('.connect-form');
+const serverHostportInput = document.getElementById('server-hostport');
+const connectBtn = document.getElementById('connect-btn');
+
+
+function doConnect() {
+  const raw = serverHostportInput.value.trim();
+  if (!raw) return;
+
+  // Accept bare port number or host:port
+  let hostport;
+  if (/^\d+$/.test(raw)) {
+    hostport = `localhost:${raw}`;
+  } else {
+    const parts = raw.split(':');
+    if (parts.length !== 2 || !parts[1] || isNaN(Number(parts[1]))) {
+      serverHostportInput.style.borderColor = '#dc3545';
+      return;
+    }
+    hostport = raw;
+  }
+  serverHostportInput.style.borderColor = '';
+
+  const serverUrl = `ws://${hostport}/extension`;
+  browser.storage.local.set({ tethernetServerUrl: serverUrl });
+  browser.runtime.sendMessage({ type: 'reconnect', serverUrl })
+    .catch(() => {});
+  connectBtn.textContent = 'Connecting...';
+}
+
+connectBtn.addEventListener('click', doConnect);
+
+disconnectBtn.addEventListener('click', () => {
+  browser.runtime.sendMessage({ type: 'disconnect' }).catch(() => {});
+});
+
+serverHostportInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doConnect();
+});
+
 // Handle toggle change
 captureSourceToggle.addEventListener('change', (e) => {
   const isEnabled = e.target.checked;
@@ -191,7 +234,7 @@ browser.runtime.sendMessage({ type: 'get_state' })
     }
   })
   .catch(error => {
-    console.error('[FoxHole Popup] Failed to get state:', error);
+    console.error('[Tethernet Popup] Failed to get state:', error);
     updateStatus('disconnected');
   });
 
@@ -202,7 +245,7 @@ reloadBtn.addEventListener('click', () => {
       // Close popup after reload
       window.close();
     }).catch(error => {
-      console.error('[FoxHole Popup] Failed to reload tab:', error);
+      console.error('[Tethernet Popup] Failed to reload tab:', error);
     });
   }
 });
@@ -239,7 +282,7 @@ function fetchBufferStats() {
   browser.runtime.sendMessage({ type: 'get_buffer_stats' })
     .then(updateBufferStats)
     .catch(error => {
-      console.error('[FoxHole Popup] Failed to get buffer stats:', error);
+      console.error('[Tethernet Popup] Failed to get buffer stats:', error);
     });
 }
 
@@ -256,7 +299,7 @@ clearBuffersBtn.addEventListener('click', () => {
       clearBuffersBtn.disabled = false;
     })
     .catch(error => {
-      console.error('[FoxHole Popup] Failed to clear buffers:', error);
+      console.error('[Tethernet Popup] Failed to clear buffers:', error);
       clearBuffersBtn.textContent = 'Clear All';
       clearBuffersBtn.disabled = false;
     });
@@ -275,4 +318,11 @@ window.addEventListener('unload', () => {
   }
 });
 
-console.log('[FoxHole] Popup initialized');
+browser.runtime.onMessage.addListener((message) => {
+  if (message.type === 'state_changed') {
+    updateStatus(message.connectionState, null, message.connectedAt);
+    updateSessionInfo(message.sessionInfo);
+  }
+});
+
+console.log('[Tethernet] Popup initialized');

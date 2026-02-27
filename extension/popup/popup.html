@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FoxHole Debug Bridge</title>
+  <title>Tethernet</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -16,8 +16,8 @@
         </svg>
       </div>
       <div class="title">
-        <h1>FoxHole</h1>
-        <p class="subtitle">Debug Bridge</p>
+        <h1>Tethernet</h1>
+        <p class="subtitle">Browser Bridge</p>
       </div>
     </div>
 
@@ -38,11 +38,16 @@
       </div>
     </div>
 
-    <div class="info-section">
-      <div class="info-row">
-        <span class="info-label">Port:</span>
-        <span id="server-port" class="info-value">19888</span>
+    <div class="connect-section">
+      <div class="connect-form">
+        <input type="text" id="server-hostport" class="hostport-input"
+               placeholder="PORT or localhost:PORT" autocomplete="off" spellcheck="false"/>
+        <button id="connect-btn" class="connect-btn">Connect</button>
       </div>
+      <button id="disconnect-btn" class="disconnect-btn hidden">Disconnect</button>
+    </div>
+
+    <div class="info-section">
       <div class="info-row">
         <span class="info-label">Tabs:</span>
         <span id="tabs-count" class="info-value">0</span>

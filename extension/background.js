@@ -4,8 +4,7 @@
  * The MCP server is a stateless proxy that queries the extension on-demand.
  */
 
-const SERVER_URL = 'ws://localhost:19888/extension';
-const RECONNECT_INTERVAL = 2000;
+let SERVER_URL = null;
 
 // Buffer configuration
 const BUFFER_CONFIG = {
@@ -21,7 +20,6 @@ const BUFFER_CONFIG = {
 const tabBuffers = new Map(); // tabId -> TabBuffer
 
 let ws = null;
-let reconnectTimer = null;
 let connectionState = 'disconnected'; // 'connected', 'connecting', 'disconnected'
 let connectedAt = null; // Timestamp when connection was established
 let sessionInfo = null; // MCP server session info {pid, cwd, projectName, port}
@@ -237,6 +235,7 @@ function handleGetScreenshots(params) {
 
 // Connection management
 function connect() {
+  if (!SERVER_URL) return;
   if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
     return;
   }
@@ -248,11 +247,10 @@ function connect() {
     ws = new WebSocket(SERVER_URL);
 
     ws.onopen = () => {
-      console.log('[FoxHole] Connected to server');
+      console.log('[Tethernet] Connected to server');
       connectionState = 'connected';
       connectedAt = Date.now();
       updateIcon();
-      clearTimeout(reconnectTimer);
 
       // Send initial tab list
       sendTabList();
@@ -265,36 +263,34 @@ function connect() {
         // Handle session info from MCP server
         if (message.type === 'session_info') {
           sessionInfo = message.data;
-          console.log('[FoxHole] Session info received:', sessionInfo.projectName, 'PID:', sessionInfo.pid);
+          console.log('[Tethernet] Session info received:', sessionInfo.projectName, 'PID:', sessionInfo.pid);
           return;
         }
 
         handleServerCommand(message);
       } catch (error) {
-        console.error('[FoxHole] Failed to parse server message:', error);
+        console.error('[Tethernet] Failed to parse server message:', error);
       }
     };
 
     ws.onerror = (error) => {
-      console.error('[FoxHole] WebSocket error:', error);
+      console.error('[Tethernet] WebSocket error:', error);
     };
 
     ws.onclose = () => {
-      console.log('[FoxHole] Disconnected from server');
+      console.log('[Tethernet] Disconnected from server');
       connectionState = 'disconnected';
       connectedAt = null;
       sessionInfo = null;
-      updateIcon();
+      SERVER_URL = null;
       ws = null;
-
-      // Auto-reconnect
-      reconnectTimer = setTimeout(connect, RECONNECT_INTERVAL);
+      updateIcon();
     };
   } catch (error) {
-    console.error('[FoxHole] Failed to connect:', error);
+    console.error('[Tethernet] Failed to connect:', error);
     connectionState = 'disconnected';
+    SERVER_URL = null;
     updateIcon();
-    reconnectTimer = setTimeout(connect, RECONNECT_INTERVAL);
   }
 }
 
@@ -312,6 +308,15 @@ function updateIcon() {
     }
   }).catch(() => {
     // Icon files might not exist, silently fail
+  });
+
+  browser.runtime.sendMessage({
+    type: 'state_changed',
+    connectionState,
+    connectedAt,
+    sessionInfo
+  }).catch(() => {
+    // Popup may not be open
   });
 }
 
@@ -369,7 +374,7 @@ async function sendTabList() {
       data: { tabs: tabList }
     });
   } catch (error) {
-    console.error('[FoxHole] Failed to get tab list:', error);
+    console.error('[Tethernet] Failed to get tab list:', error);
   }
 }
 
@@ -513,7 +518,7 @@ async function handleServerCommand(message) {
       });
     }
   } catch (error) {
-    console.error(`[FoxHole] Command ${action} failed:`, error);
+    console.error(`[Tethernet] Command ${action} failed:`, error);
     if (requestId) {
       sendToServer({
         requestId,
@@ -608,14 +613,60 @@ async function handleListFrames(params) {
 }
 
 async function handleTakeScreenshot(params) {
-  const { tabId, format, quality } = params;
+  const { tabId, format, quality, cropTo, selector } = params;
   const options = {
     format: format || 'png'
   };
   if (quality) options.quality = quality;
 
   const dataUrl = await browser.tabs.captureVisibleTab(null, options);
+
+  // Apply crop if requested
+  if (cropTo || selector) {
+    let rect = cropTo;
+
+    if (selector) {
+      // Get element bounds from the page
+      const results = await browser.tabs.executeScript(tabId, {
+        code: `(function() {
+          const el = document.querySelector(${JSON.stringify(selector)});
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { x: r.left, y: r.top, width: r.width, height: r.height };
+        })()`
+      });
+      rect = results && results[0];
+    }
+
+    if (rect && rect.width > 0 && rect.height > 0) {
+      const dprResults = await browser.tabs.executeScript(tabId, {
+        code: 'window.devicePixelRatio || 1'
+      });
+      const dpr = (dprResults && dprResults[0]) || 1;
+      return { dataUrl: await cropDataUrl(dataUrl, rect, dpr) };
+    }
+  }
+
   return { dataUrl };
+}
+
+function cropDataUrl(dataUrl, cssRect, dpr) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const x = Math.max(0, Math.round(cssRect.x * dpr));
+      const y = Math.max(0, Math.round(cssRect.y * dpr));
+      const w = Math.min(Math.round(cssRect.width * dpr), img.width - x);
+      const h = Math.min(Math.round(cssRect.height * dpr), img.height - y);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => reject(new Error('Failed to load screenshot for cropping'));
+    img.src = dataUrl;
+  });
 }
 
 async function handleGetCookies(params) {
@@ -752,7 +803,7 @@ function serializeRequestBody(requestBody) {
 
     return null;
   } catch (e) {
-    console.error('[FoxHole] Error serializing request body:', e);
+    console.error('[Tethernet] Error serializing request body:', e);
     return null;
   }
 }
@@ -792,7 +843,7 @@ browser.webRequest.onBeforeRequest.addListener(
           .replace(/\?/g, '.');
         const regex = new RegExp(regexPattern, 'i');
         if (regex.test(url)) {
-          console.log(`[FoxHole] Blocked URL: ${url} (pattern: ${pattern})`);
+          console.log(`[Tethernet] Blocked URL: ${url} (pattern: ${pattern})`);
           return { cancel: true };
         }
       }
@@ -853,12 +904,12 @@ browser.webRequest.onBeforeRequest.addListener(
         };
 
         filter.onerror = (event) => {
-          console.error(`[FoxHole] Filter error for ${url}:`, filter.error);
+          console.error(`[Tethernet] Filter error for ${url}:`, filter.error);
           filter.disconnect();
         };
       } catch (e) {
         // filterResponseData may fail for some request types, ignore
-        console.warn(`[FoxHole] Could not filter response for ${url}:`, e.message);
+        console.warn(`[Tethernet] Could not filter response for ${url}:`, e.message);
       }
     }
   },
@@ -954,7 +1005,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
     if (tabId) {
       contentScriptTabs.add(tabId);
       updateTabBadge(tabId);
-      console.log(`[FoxHole] Content script ready in tab ${tabId}`);
+      console.log(`[Tethernet] Content script ready in tab ${tabId}`);
     }
     return false;
   }
@@ -996,7 +1047,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
 
     default:
       // Unknown message types are logged but not stored
-      console.warn(`[FoxHole] Unknown message type: ${type}`);
+      console.warn(`[Tethernet] Unknown message type: ${type}`);
   }
 
   return false;
@@ -1102,6 +1153,26 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message.type === 'reconnect') {
+    SERVER_URL = message.serverUrl;
+    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); ws = null; }
+    connect();
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message.type === 'disconnect') {
+    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); ws = null; }
+    SERVER_URL = null;
+    connectionState = 'disconnected';
+    connectedAt = null;
+    sessionInfo = null;
+    updateIcon();
+    browser.storage.local.remove('tethernetServerUrl');
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.type === 'get_buffer_stats') {
     const result = handleGetTabBufferSummary({});
     sendResponse(result);
@@ -1115,7 +1186,10 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Initialize
-connect();
+// Initialize — always start fully reset. No auto-connect on startup.
+// User must manually connect each session via the popup.
+browser.storage.local.remove('tethernetServerUrl');
+connectionState = 'disconnected';
+updateIcon();
 
-console.log('[FoxHole] Background script initialized');
+console.log('[Tethernet] Background script initialized');

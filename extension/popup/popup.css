@@ -4,6 +4,10 @@
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none !important;
+}
+
 body {
   width: 350px;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -448,4 +452,74 @@ body {
 .toggle input:checked + .toggle-slider:before {
   background-color: #ff6b35;
   transform: translateX(18px);
+}
+
+/* Connect Section */
+.connect-section {
+  background-color: #16213e;
+  border: 1px solid #2a2a3e;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.connect-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.hostport-input {
+  flex: 1;
+  background-color: #0f0f1a;
+  border: 1px solid #3a3a4e;
+  border-radius: 4px;
+  color: #eee;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.hostport-input:focus {
+  border-color: #ff6b35;
+}
+
+.hostport-input::placeholder {
+  color: #555;
+}
+
+.connect-btn {
+  background-color: #ff6b35;
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.2s;
+}
+
+.connect-btn:hover {
+  background-color: #e55a2b;
+}
+
+.disconnect-btn {
+  width: 100%;
+  background-color: #4a4a5e;
+  color: #fff;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.disconnect-btn:hover {
+  background-color: #dc3545;
 }
