@@ -1,4 +1,4 @@
-# FoxHole MCP Server
+# Tethernet MCP Server
 
 Browser automation for Claude Code via Firefox.
 
@@ -17,7 +17,7 @@ npm install
 npm run build
 
 # Register with Claude Code (use YOUR absolute path)
-claude mcp add foxhole -- node /path/to/foxhole-debug-bridge/server/dist/index.js
+claude mcp add tethernet -- node /path/to/tethernet-debug-bridge/server/dist/index.js
 ```
 
 ### 2. Install Firefox Extension
@@ -30,14 +30,25 @@ npm run ext:run    # Loads extension in Firefox with auto-reload
 
 Or load manually: Firefox → `about:debugging` → "This Firefox" → "Load Temporary Add-on" → select `extension/manifest.json`
 
-### 3. Verify Connection
+### 3. Connect Extension to Session
 
-In Claude Code:
+Each Claude Code session gets its own dynamic port. After starting a session:
+
+```
+> get_connection_info
+```
+
+Returns something like: `ws://localhost:54321/extension` — enter `localhost:54321` in the Tethernet extension popup and click **Connect**.
+
+The port is also written to `~/.tethernet/port` for reference.
+
+### 4. Verify Connection
+
 ```
 > get_connection_status
 ```
 
-Should show `extensionConnected: true` when Firefox extension is running.
+Should show `extensionConnected: true`.
 
 ### Optional: Ollama Integration
 
@@ -54,18 +65,19 @@ OLLAMA_DEFAULT_MODEL=qwen2.5:7b
 ### Components
 
 1. **MCP Server** (stdio transport)
-   - Runs as a child process of Claude Code
+   - Spawned as a child process by Claude Code — no daemon needed
+   - Each Claude Code session gets its own server process and WebSocket port
    - Exposes 40+ tools for browser automation
-   - Handles tool calls and returns results
 
-2. **WebSocket Server** (`ws://localhost:19888`)
-   - Accepts connections from the Firefox extension
-   - Receives browser events (console logs, network requests, etc.)
-   - Sends commands to the browser
+2. **WebSocket Server** (dynamic port, OS-assigned)
+   - Binds on port 0 at startup; actual port written to `~/.tethernet/port`
+   - Accepts connection from the Firefox extension popup
+   - Sends commands to the browser and receives responses
 
-3. **Buffer Store**
-   - Per-tab data buffers with FIFO eviction
-   - Stores console logs, network requests, errors, DOM snapshots, etc.
+3. **Firefox Extension**
+   - Stores server URL in `browser.storage.local`
+   - User enters `localhost:PORT` in popup to connect to their session
+   - Buffers all browser data locally (extension is source of truth)
 
 ## Development
 
@@ -79,10 +91,10 @@ npm test        # Run tests
 
 See `src/utils/config.ts`:
 
-- Port: 19888
 - Buffer limits (console logs: 1000, network requests: 500, etc.)
 - WebSocket ping interval: 30s
 - Logging settings
+- Note: port is dynamic (no fixed port config)
 
 ## MCP Tools (40+)
 
@@ -145,7 +157,8 @@ See `src/utils/config.ts`:
 - `get_buffer_stats` - Get buffer statistics
 
 ### Connection
-- `get_connection_status` - Get connection status
+- `get_connection_info` - Get WebSocket URL/port to enter in extension popup
+- `get_connection_status` - Get connection status (extensionConnected, tabCount, wsPort)
 
 ### Wait & Timing
 - `wait_for_element` - Wait for element to appear
@@ -231,35 +244,33 @@ Session logs are written to `logs/session-<timestamp>.jsonl` in JSON Lines forma
 
 ## Connection Status
 
-Use the `get_connection_status` MCP tool to check connection status:
+Use the `get_connection_info` MCP tool to get the WebSocket port for the extension popup.
+
+Use the `get_connection_status` MCP tool to check:
 - Extension connected status
 - Primary tab ID
 - Tab count
+- WebSocket port (`wsPort`)
 
 ## File Structure
 
 ```
 server/
 ├── src/
-│   ├── buffer/
-│   │   ├── types.ts       # Data type definitions
-│   │   └── store.ts       # Buffer management
 │   ├── connection/
 │   │   ├── manager.ts     # Connection state
-│   │   └── extension.ts   # WebSocket handling
+│   │   └── extension.ts   # WebSocket server (dynamic port)
 │   ├── mcp/
 │   │   ├── types.ts       # MCP types
 │   │   ├── tools.ts       # Tool definitions
 │   │   └── handlers.ts    # Tool implementations
 │   ├── ollama/
 │   │   └── client.ts      # Ollama API client
-│   ├── ui/
-│   │   └── terminal.ts    # Terminal UI
 │   ├── logger/
 │   │   └── session.ts     # Session logging
 │   ├── utils/
-│   │   └── config.ts      # Configuration
-│   ├── server.ts          # Main server setup
+│   │   └── config.ts      # Buffer limits, WebSocket config
+│   ├── server.ts          # Main server setup (stdio transport)
 │   └── index.ts           # Entry point
 ├── package.json
 ├── tsconfig.json

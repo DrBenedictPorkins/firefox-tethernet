@@ -1,10 +1,10 @@
-# FoxHole Debug Bridge - Firefox Extension
+# Tethernet - Firefox Extension
 
-This Firefox extension connects to the FoxHole server for remote debugging, automation, and testing.
+Firefox extension that connects to the Tethernet MCP server, giving Claude Code live access to your browser session.
 
 ## Features
 
-- **WebSocket Connection**: Connects to ws://localhost:19888/extension with auto-reconnect
+- **WebSocket Connection**: Connects to the Tethernet MCP server on a user-configured port with auto-reconnect
 - **Console Capture**: Intercepts all console methods (log, warn, error, info, debug)
 - **Network Monitoring**: Captures HTTP requests and responses via webRequest API
 - **JavaScript Errors**: Captures window errors and unhandled promise rejections
@@ -17,220 +17,150 @@ This Firefox extension connects to the FoxHole server for remote debugging, auto
 
 ### Development Mode
 
-1. Generate icons first:
-   ```bash
-   cd extension/icons
-   chmod +x generate-icons.sh
-   ./generate-icons.sh
-   ```
+1. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`
+2. Click "Load Temporary Add-on"
+3. Select `manifest.json` from the `extension/` directory
 
-2. Open Firefox and navigate to `about:debugging#/runtime/this-firefox`
-
-3. Click "Load Temporary Add-on"
-
-4. Select the `manifest.json` file in the `extension/` directory
-
-### Using web-ext
+### Using web-ext (from repo root)
 
 ```bash
-npm install -g web-ext
-cd extension
-web-ext run
+npm run ext:run    # Firefox with auto-reload
+npm run ext:lint   # Lint
+npm run ext:build  # Package for distribution
 ```
+
+## Connecting to a Session
+
+The extension does **not** auto-connect. Each Claude Code session gets a dynamic port — you connect explicitly:
+
+1. Start a Claude Code session (Tethernet MCP server spawns automatically)
+2. Call `get_connection_info` in Claude Code → get `localhost:PORT`
+3. Click the Tethernet toolbar icon → enter `localhost:PORT` → click **Connect**
+4. Icon turns green when connected
+
+The server URL is saved in `browser.storage.local` and restored on browser restart.
 
 ## File Structure
 
 ```
 extension/
 ├── manifest.json           # Extension manifest (Manifest V2)
-├── background.js          # Background script (persistent)
-├── content.js             # Content script (injected at document_start)
+├── background.js           # Background script: WebSocket, command routing, network capture
+├── content.js              # Content script: console/error interception, DOM commands
 ├── popup/
-│   ├── popup.html        # Browser action popup
-│   ├── popup.css         # Popup styles
-│   └── popup.js          # Popup logic
+│   ├── popup.html          # Browser action popup
+│   ├── popup.css           # Popup styles
+│   └── popup.js            # Popup logic (connect UI, status display)
 ├── devtools/
-│   ├── devtools.html     # DevTools page
-│   ├── devtools.js       # DevTools registration
-│   ├── panel.html        # DevTools panel
-│   ├── panel.css         # Panel styles
-│   └── panel.js          # Panel logic
+│   ├── devtools.html
+│   ├── devtools.js
+│   ├── panel.html
+│   ├── panel.css
+│   └── panel.js
 └── icons/
-    ├── icon.svg          # Source icon (disconnected)
-    ├── icon-connected.svg # Source icon (connected)
-    ├── generate-icons.sh # Icon generation script
-    └── icon-*.png        # Generated PNG icons
+    ├── icon.svg             # Source icon (disconnected)
+    ├── icon-connected.svg   # Source icon (connected)
+    ├── generate-icons.sh    # Icon generation script
+    └── icon-*.png           # Generated PNG icons
 ```
 
 ## Architecture
 
-### Background Script (background.js)
+### Background Script (`background.js`)
 
-- Manages WebSocket connection to server
-- Handles server commands and routes them appropriately
+- Manages WebSocket connection to Tethernet MCP server
+- Reads saved server URL from `browser.storage.local` on startup
+- Handles `reconnect` messages from popup to switch server URL
+- Routes server commands to content scripts or handles directly
 - Captures network requests via webRequest API
 - Tracks tab lifecycle events
-- Coordinates communication between server and content scripts
 
-### Content Script (content.js)
+### Content Script (`content.js`)
 
-- Injected into all pages at document_start
+- Injected into all pages at `document_start`
+- Guards against double-injection with `window.__tethernet_injected`
 - Intercepts console methods without breaking page functionality
 - Captures JavaScript errors and unhandled rejections
 - Intercepts WebSocket constructor to monitor messages
 - Handles DOM manipulation commands from background script
 
-### Popup (popup/)
+### Popup (`popup/`)
 
-- Displays connection status
-- Shows server URL
-- Provides quick access to extension info
-
-### DevTools (devtools/)
-
-- Placeholder for future DevTools panel
-- Will display captured logs, network requests, errors
+- Displays connection status and session info
+- `host:port` input + Connect button to configure server URL
+- Buffer stats (console, network, errors, WebSocket counts)
+- Reload button for pages where content script needs injecting
 
 ## Server Commands
 
-The extension handles these commands from the server:
+The extension handles these commands from the Tethernet MCP server:
 
 ### Tab Management
-- `list_tabs` - Get all open tabs
-- `create_tab` - Create new tab
-- `close_tab` - Close a tab
-- `focus_tab` - Focus a tab
-- `navigate` - Navigate to URL
-- `reload_tab` - Reload a tab
-- `go_back` - Go back in history
-- `go_forward` - Go forward in history
+- `list_tabs`, `create_tab`, `close_tab`, `focus_tab`
+- `navigate`, `reload_tab`, `go_back`, `go_forward`
 
 ### Inspection
-- `take_screenshot` - Capture visible tab
-- `get_dom` - Get full DOM HTML
-- `query_selector` - Query DOM elements
-- `get_computed_styles` - Get element styles
-- `get_page_text` - Get page text content
-- `get_element_bounds` - Get element position/size
+- `take_screenshot`, `query_selector`, `get_computed_styles`
+- `get_page_text`, `get_element_bounds`, `get_element_properties`
 
 ### Interaction
-- `click_element` - Click on element
-- `type_text` - Type into input field
-- `press_key` - Simulate key press
-- `scroll` - Scroll page
-- `scroll_to_element` - Scroll element into view
-- `hover_element` - Hover over element
-- `focus_element` - Focus element
-- `select_option` - Select dropdown option
-- `set_checkbox` - Set checkbox state
+- `click_element`, `type_text`, `press_key`
+- `scroll`, `scroll_to_element`, `hover_element`
+- `focus_element`, `select_option`, `set_checkbox`
 
 ### Execution
-- `execute_script` - Execute JavaScript in page context
+- `execute_script` — run JavaScript in page context
+- `execute_background_script` — run JavaScript in extension background context
 
 ### Storage
-- `get_cookies` - Get cookies for URL
-- `set_cookie` - Set a cookie
-- `delete_cookie` - Delete a cookie
-- `get_storage` - Get localStorage/sessionStorage
-- `set_storage` - Set storage item
-- `clear_storage` - Clear storage
+- `get_cookies`, `set_cookie`, `delete_cookie`
+- `get_storage`, `set_storage`, `clear_storage`
 
-## Message Format
+### DOM
+- `get_dom`, `get_dom_structure`, `dom_stats`, `get_page_content`
 
-### Messages to Server
+### Buffer Queries
+- `query_buffer`, `get_network_request_detail`, `get_tab_buffer_summary`, `clear_buffer`
+
+## Message Protocol
+
+### Commands from server → extension
 
 ```javascript
-{
-  type: 'console_log' | 'network_request' | 'js_error' | 'websocket_message' | 'tab_created' | 'tab_closed' | 'tab_updated',
-  data: {
-    // Type-specific data
-    tabId: number,
-    url: string,
-    frameId: number,
-    // ... additional fields
-  }
-}
+{ action: 'navigate', params: { tabId: 123, url: 'https://...' }, requestId: 'uuid' }
 ```
 
-### Commands from Server
+### Responses extension → server
 
 ```javascript
-{
-  action: 'navigate' | 'click_element' | ...,
-  params: {
-    tabId: number,
-    // ... action-specific parameters
-  },
-  requestId: 'unique-id'
-}
-```
-
-### Responses to Server
-
-```javascript
-{
-  requestId: 'unique-id',
-  result: any,        // Command result
-  error: string | null // Error message if failed
-}
+{ requestId: 'uuid', result: any, error: string | null }
 ```
 
 ## Permissions
 
-The extension requires these permissions:
+- `tabs` — access tab information
+- `activeTab` — access active tab
+- `webRequest` / `webRequestBlocking` — monitor and modify network requests
+- `<all_urls>` — access all websites
+- `storage` — persist server URL and settings
+- `cookies` — access and modify cookies
+- `webNavigation` — track navigation events
+- `history`, `downloads`, `sessions`, `bookmarks` — background script access
+- `notifications`, `clipboardRead`, `clipboardWrite` — utility access
 
-- `tabs` - Access tab information
-- `activeTab` - Access active tab
-- `webRequest` - Monitor network requests
-- `webRequestBlocking` - Modify network requests
-- `<all_urls>` - Access all websites
-- `storage` - Store extension data
-- `cookies` - Access and modify cookies
-- `clipboardRead` - Read clipboard
-- `clipboardWrite` - Write to clipboard
-- `notifications` - Show notifications
-- `webNavigation` - Track navigation events
-
-## Security Notes
-
-- All communication with server is over localhost WebSocket
-- Content scripts run in isolated context (cannot access page JavaScript directly)
-- Console/WebSocket interception uses IIFE to avoid polluting page scope
-- Extension validates all messages and handles context invalidation
-- No external dependencies or CDN resources
-
-## Browser Compatibility
-
-- Minimum Firefox version: 91.0
-- Uses Manifest V2 (Firefox standard)
-- Uses `browser.*` API namespace (Firefox WebExtension API)
-- Persistent background page (standard in MV2)
-
-## Development
-
-### Debugging
+## Debugging
 
 **Background Script:**
 1. Go to `about:debugging#/runtime/this-firefox`
-2. Find "FoxHole Debug Bridge"
-3. Click "Inspect"
+2. Find "Tethernet" → click **Inspect**
 
 **Content Script:**
-1. Open DevTools on target webpage (F12)
-2. Content script logs appear in Console
-3. Look for `[FoxHole]` prefix
-
-**Network Monitoring:**
-- Check Network tab to see captured requests
-- Background page network is separate from content page
+1. Open DevTools on target page (F12)
+2. Look for `[Tethernet]` prefix in Console
 
 ### Common Issues
 
-- **Extension not loading**: Check manifest.json syntax with `web-ext lint`
-- **Content script not injecting**: Verify permissions in manifest.json
-- **Messages not sending**: Check if extension context is still valid
-- **WebSocket not connecting**: Ensure server is running on port 19888
-
-## License
-
-Part of the FoxHole Debug Bridge project.
+- **Extension not loading**: Check `manifest.json` syntax with `npm run ext:lint`
+- **Content script not injecting**: Reload the page after loading the extension
+- **Not connecting**: Ensure Claude Code session is active; call `get_connection_info` for the correct port
+- **Icon stays gray after connecting**: Check background script console for WebSocket errors

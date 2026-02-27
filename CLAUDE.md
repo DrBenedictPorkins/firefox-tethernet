@@ -2,21 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## CRITICAL: Tethernet Port
+
+**ALWAYS call `get_connection_info` tool when asked for the Tethernet port. NEVER use a port from conversation history — the port changes every session.**
+
 ## Project Overview
 
-FoxHole Debug Bridge connects Firefox to Claude Code via the Model Context Protocol (MCP). It consists of:
+Tethernet Debug Bridge connects Firefox to Claude Code via the Model Context Protocol (MCP). It consists of:
 - **Firefox Extension** (Manifest V2) - Captures browser data and executes commands
-- **MCP Server** (Node.js/TypeScript) - Bridges extension to Claude via stdio
-- **WebSocket** - Connects extension to server on `ws://localhost:19888/extension`
+- **MCP Server** (Node.js/TypeScript) - Bridges extension to Claude via **stdio transport** (spawned by Claude Code)
+- **WebSocket** - Connects extension to server on a **dynamic port** (OS-assigned on startup)
 
 ## Commands
 
 ```bash
-# Development
+# Server (from server/ directory)
 npm run dev              # Run server with hot reload (tsx watch)
 npm run build            # Compile TypeScript
-npm start                # Start production server
-npm test                 # Run tests (vitest) - run from server/ directory
+npm start                # Run server directly (stdio mode)
+npm test                 # Run tests (vitest)
 
 # Extension
 npm run ext:run          # Run extension in Firefox with auto-reload
@@ -27,23 +31,68 @@ npm run ext:build        # Build extension for distribution
 cd server && npx vitest run src/mcp/handlers.test.ts
 ```
 
+## Claude Code Configuration
+
+Tethernet uses **stdio transport**. Claude Code spawns the server as a child process — no daemon needed.
+
+### Setup
+
+1. Build the server:
+   ```bash
+   cd server && npm run build
+   ```
+
+2. Register with Claude Code:
+   ```bash
+   claude mcp add tethernet -- node /path/to/tethernet-debug-bridge/server/dist/index.js
+   ```
+
+   Or configure manually in `~/.claude.json` or project `.mcp.json`:
+   ```json
+   {
+     "mcpServers": {
+       "tethernet": {
+         "type": "stdio",
+         "command": "node",
+         "args": ["/path/to/tethernet-debug-bridge/server/dist/index.js"]
+       }
+     }
+   }
+   ```
+
+3. Install and load the Firefox extension (see Extension section below).
+
+4. Connect the extension to your session:
+   - In Claude Code: call `get_connection_info` tool → get `localhost:PORT`
+   - In Firefox popup: enter `localhost:PORT` → click Connect
+
+### How the Dynamic Port Works
+
+On startup the server binds WebSocket on port 0 (OS picks an available port) and writes it to `~/.tethernet/port`. Each Claude Code session gets its own port, giving explicit 1:1 binding between session and Firefox window.
+
+### Troubleshooting
+
+- **Extension not connected**: Call `get_connection_info`, enter the shown port in the extension popup
+- **Port file**: `cat ~/.tethernet/port` to see the current session's port
+- **Server logs**: All logs go to stderr (stdout is reserved for MCP protocol)
+
 ## Architecture
 
 ```
 Firefox Extension                    MCP Server                    Claude Code
 ┌─────────────────┐                 ┌─────────────────┐           ┌───────────┐
 │ background.js   │◄── WebSocket ──►│ extension.ts    │           │           │
-│ content.js      │    :19888       │ handlers.ts     │◄── stdio ─►│  Claude   │
-│ popup/devtools  │                 │ buffer/store.ts │           │           │
+│ content.js      │   :DYNAMIC      │ handlers.ts     │◄─ stdio ──►│  Claude   │
+│ popup/devtools  │                 │                 │           │           │
 └─────────────────┘                 └─────────────────┘           └───────────┘
 ```
 
 **Data Flow:**
 1. Content script intercepts console/errors/WebSocket in page context
 2. Background script captures network via webRequest API, manages tabs
-3. Messages sent to server: `{ type, tabId, data }`
-4. Server stores in per-tab buffers (BufferStore)
-5. MCP tools expose data to Claude via stdio transport
+3. Extension buffers all data locally (extension is source of truth)
+4. MCP tools query extension on-demand via WebSocket commands
+5. Server proxies results to Claude via stdio transport
 
 **Command Flow:**
 1. Claude calls MCP tool (e.g., `execute_script`)
@@ -59,13 +108,12 @@ Firefox Extension                    MCP Server                    Claude Code
 - `content.js` - Console/error interception, DOM manipulation, runs in page context
 
 ### Server (`server/src/`)
-- `server.ts` - Main setup: MCP server, WebSocket handler, tool registration
+- `server.ts` - Main setup: stdio MCP server, WebSocket handler, tool registration
 - `mcp/tools.ts` - 40+ tool definitions with JSON schemas
 - `mcp/handlers.ts` - Tool implementation, routes commands to extension
-- `connection/extension.ts` - WebSocket server, request/response correlation
-- `buffer/store.ts` - Per-tab data storage with FIFO eviction
+- `connection/extension.ts` - WebSocket server (dynamic port), request/response correlation
 - `ollama/client.ts` - Ollama API client for local LLM analysis
-- `utils/config.ts` - Port (19888), buffer limits, Ollama config
+- `utils/config.ts` - Buffer limits, WebSocket config, Ollama config
 
 ## Extension ↔ Server Protocol
 
@@ -258,14 +306,101 @@ OLLAMA_DEFAULT_MODEL=qwen2.5:7b               # Recommended model
 
 **Note:** Uses `temperature: 0` for deterministic outputs.
 
+## Script Execution
+
+Two script execution tools with different contexts:
+
+### `execute_script` - Page Context
+Run JavaScript with full DOM access. Use for data extraction, element manipulation, page state reading.
+
+### `execute_background_script` - Extension Context
+Run JavaScript in the extension's background with full `browser.*` API access. Use for:
+
+```javascript
+// Window management
+browser.windows.update(windowId, { focused: true, drawAttention: true })
+
+// System notifications
+browser.notifications.create({ type: "basic", title: "Done", message: "Task complete" })
+
+// Search history
+browser.history.search({ text: "github", maxResults: 10 })
+
+// Persistent storage (survives restarts)
+await browser.storage.local.set({ key: value })
+await browser.storage.local.get("key")
+
+// Tab control
+browser.tabs.update(tabId, { muted: true, pinned: true })
+```
+
+**NOT FOR:** DOM manipulation, page scraping (use `execute_script` instead).
+
+## Extension Debug Bridge
+
+Tools for debugging other Firefox extensions that implement the Tethernet debug bridge protocol.
+
+### `check_debug_bridge` - Check if bridge is present
+
+```typescript
+check_debug_bridge({ tabId?, frameId? })
+```
+
+Returns:
+- `{ present: true, version: 1, extensionId: '...', extensionName: '...', injectedAt: 1234567890 }` if bridge found
+- `{ present: false }` if no bridge
+
+### `query_extension_debug` - Query extension via debug bridge
+
+```typescript
+query_extension_debug({
+  request?: { type: string, ... },  // Default: { type: 'getState' }
+  timeout?: number,                  // Default: 5000ms
+  tabId?: number,
+  frameId?: number
+})
+```
+
+**Standard request types:**
+| Type | Description |
+|------|-------------|
+| `ping` | Health check, returns `{ ok: true, timestamp }` |
+| `getState` | Extension-defined full state dump |
+| `getErrors` | Array of recent errors/warnings |
+| `getStorage` | `browser.storage.local` snapshot |
+| `getManifest` | `{ name, version, permissions }` |
+
+**Example workflow:**
+```javascript
+// Check if extension has debug bridge
+check_debug_bridge()
+// { present: true, version: 1, extensionId: 'myext@example.com', extensionName: 'My Extension' }
+
+// Health check
+query_extension_debug({ request: { type: 'ping' } })
+// { ok: true, timestamp: 1234567890 }
+
+// Get extension state
+query_extension_debug({ request: { type: 'getState' } })
+// { queue: [...], config: {...}, ... }
+
+// Get errors with custom timeout
+query_extension_debug({ request: { type: 'getErrors' }, timeout: 10000 })
+// { errors: [{ type: 'error', msg: '...', stack: '...' }, ...] }
+```
+
+**Protocol:** Target extension must implement the debug bridge (see `firefox-extension-dev` agent, Section 11). The bridge uses CustomEvents on the page context to communicate.
+
 ## Development Notes
 
-- Server logs go to stderr (preserves stdio for MCP)
-- Extension uses `[FoxHole]` prefix for console messages
-- Content script uses IIFE with `window.__foxhole_injected` guard
-- WebSocket auto-reconnects every 2 seconds
+- Server logs go to stderr (stdout is reserved for MCP stdio protocol — never use `console.log` in server code)
+- Port written to `~/.tethernet/port` on startup, deleted on shutdown
+- Extension uses `[Tethernet]` prefix for console messages
+- Content script uses IIFE with `window.__tethernet_injected` guard
+- Extension WebSocket auto-reconnects every 2 seconds (only when a server URL is saved)
 - Extension icon changes color based on connection state
 - `tabId` must be at message root level (not nested in `data`)
+- Each Claude Code session owns its own server process and port (1:1 binding)
 
 ## Testing the Extension
 
@@ -281,9 +416,9 @@ OLLAMA_DEFAULT_MODEL=qwen2.5:7b               # Recommended model
 3. If needs content script: add case in `extension/content.js` handleCommand()
 4. If needs content script: add to forward list in `extension/background.js`
 
-## FoxHole Agent
+## Tethernet Agent
 
-A specialized Claude Code agent is provided for browser automation: `agents/foxhole.md`
+A specialized Claude Code agent is provided for browser automation: `agents/tethernet-agent.md`
 
 The agent contains:
 - Detailed tool usage instructions and examples
@@ -301,21 +436,21 @@ The agent contains:
 2. Add handler case in `server/src/mcp/handlers.ts`
 3. If needs content script: add case in `extension/content.js` handleCommand()
 4. If needs content script: add to forward list in `extension/background.js`
-5. **Update `agents/foxhole.md`** with tool description and usage examples
-6. Copy updated agent to `~/.claude/agents/foxhole.md`
+5. **Update `agents/tethernet-agent.md`** with tool description and usage examples
+6. Copy updated agent to `~/.claude/agents/tethernet-agent.md`
 
 ## Rendering HTML Reports in Browser
 
 When user asks to create a report, render HTML, or display formatted data in the browser:
 
-1. Write HTML content to a temp file: `/tmp/foxhole-report.html`
-2. Navigate to it using `file:///tmp/foxhole-report.html`
+1. Write HTML content to a temp file: `/tmp/tethernet-report.html`
+2. Navigate to it using `file:///tmp/tethernet-report.html`
 
 ```javascript
 // Example workflow:
 // 1. Use Bash/Write tool to create the HTML file
 // 2. Use navigate tool to open it
-navigate({ url: 'file:///tmp/foxhole-report.html' })
+navigate({ url: 'file:///tmp/tethernet-report.html' })
 ```
 
 **Avoid:**
