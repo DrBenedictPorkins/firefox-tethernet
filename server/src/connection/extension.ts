@@ -1,9 +1,9 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import { createServer, type Server as HTTPServer } from 'http';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
-import type { Server as HTTPServer } from 'http';
 import type { ConnectionManager } from './manager.js';
-import type { ExtensionRequest, ExtensionResponse } from '../mcp/types.js';
+import type { ExtensionRequest } from '../mcp/types.js';
 import { CONFIG } from '../utils/config.js';
 
 interface PendingRequest {
@@ -13,24 +13,57 @@ interface PendingRequest {
 }
 
 export class ExtensionConnectionHandler {
+  private httpServer: HTTPServer;
   private wss: WebSocketServer;
   private ws: WebSocket | null = null;
   private pendingRequests = new Map<string, PendingRequest>();
+  private port: number = 0;
 
   constructor(
-    httpServer: HTTPServer,
     private connectionManager: ConnectionManager
   ) {
+    this.httpServer = createServer();
     this.wss = new WebSocketServer({
-      server: httpServer,
+      server: this.httpServer,
       path: CONFIG.websocket.path,
     });
 
     this.wss.on('connection', this.handleConnection.bind(this));
   }
 
+  async start(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      this.httpServer.listen(0, () => {
+        const addr = this.httpServer.address();
+        if (addr && typeof addr === 'object') {
+          this.port = addr.port;
+          resolve(this.port);
+        } else {
+          reject(new Error('Failed to get server address'));
+        }
+      });
+      this.httpServer.on('error', reject);
+    });
+  }
+
+  async close(): Promise<void> {
+    return new Promise((resolve) => {
+      this.wss.close(() => {
+        this.httpServer.close(() => resolve());
+      });
+    });
+  }
+
+  getPort(): number {
+    return this.port;
+  }
+
+  getWsUrl(): string {
+    return `ws://localhost:${this.port}${CONFIG.websocket.path}`;
+  }
+
   private handleConnection(socket: WebSocket): void {
-    console.log('Extension connected');
+    console.error('Extension connected');
 
     // Disconnect previous connection if any
     if (this.ws) {
@@ -48,7 +81,7 @@ export class ExtensionConnectionHandler {
         cwd: process.cwd(),
         projectName: path.basename(process.cwd()),
         connectedAt: Date.now(),
-        port: CONFIG.port
+        port: this.port
       }
     };
     socket.send(JSON.stringify(sessionInfo));
@@ -58,12 +91,12 @@ export class ExtensionConnectionHandler {
     });
 
     socket.on('close', () => {
-      console.log('Extension disconnected');
+      console.error('Extension disconnected');
       this.ws = null;
       this.connectionManager.setExtensionConnected(null);
 
       // Reject all pending requests
-      for (const [requestId, pending] of this.pendingRequests) {
+      for (const [, pending] of this.pendingRequests) {
         clearTimeout(pending.timeout);
         pending.reject(new Error('Extension disconnected'));
       }
@@ -116,7 +149,7 @@ export class ExtensionConnectionHandler {
   }
 
   private handleExtensionEvent(message: any): void {
-    const { type, data, tabId } = message;
+    const { type } = message;
 
     // Extension now owns all buffered data - server is stateless
     // Events from extension are no longer stored here

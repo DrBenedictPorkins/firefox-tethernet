@@ -17,14 +17,15 @@ export class SessionLogger {
       return;
     }
 
-    // Create logs directory if it doesn't exist
-    if (!fs.existsSync(CONFIG.logging.directory)) {
-      fs.mkdirSync(CONFIG.logging.directory, { recursive: true });
+    // Create logs directory if it doesn't exist (absolute path relative to server binary)
+    const logsDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', CONFIG.logging.directory);
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
     }
 
     // Create log file with timestamp
     const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
-    this.logFile = path.join(CONFIG.logging.directory, `session-${timestamp}.jsonl`);
+    this.logFile = path.join(logsDir, `session-${timestamp}.jsonl`);
     this.logStream = fs.createWriteStream(this.logFile, { flags: 'a' });
   }
 

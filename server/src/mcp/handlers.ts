@@ -10,7 +10,8 @@ export class ToolHandlers {
 
   constructor(
     private sendToExtension: (action: string, params: any) => Promise<any>,
-    private connectionManager: ConnectionManager
+    private connectionManager: ConnectionManager,
+    private wsPort: number
   ) {
     // Clear primaryTabId when extension disconnects
     this.connectionManager.onChange((state) => {
@@ -20,9 +21,9 @@ export class ToolHandlers {
     });
   }
 
-  private getTargetTabId(requestedTabId?: number): number | null {
-    if (requestedTabId !== undefined) {
-      return requestedTabId;
+  private getTargetTabId(requestedTabId?: number | string): number | null {
+    if (requestedTabId !== undefined && requestedTabId !== null) {
+      return Number(requestedTabId);
     }
     return this.primaryTabId;
   }
@@ -78,7 +79,7 @@ export class ToolHandlers {
           return this.success({ switched: true, tabId: args.tabId });
 
         case 'set_primary_tab':
-          this.primaryTabId = args.tabId;
+          this.primaryTabId = args.tabId !== undefined ? Number(args.tabId) : null;
           return this.success({ primaryTabId: this.primaryTabId });
 
         case 'get_primary_tab':
@@ -453,6 +454,8 @@ export class ToolHandlers {
             tabId,
             fullPage: args.fullPage,
             format,
+            cropTo: args.cropTo,
+            selector: args.selector,
           });
 
           // If returnBase64 is true, return the raw base64 data
@@ -462,7 +465,7 @@ export class ToolHandlers {
 
           // Default: save to file and return path
           const timestamp = Date.now();
-          const filename = `foxhole-screenshot-${timestamp}.${format}`;
+          const filename = `tethernet-screenshot-${timestamp}.${format}`;
           const filePath = (args.saveTo as string) || join('/tmp', filename);
 
           // result.dataUrl is a data URI: "data:image/png;base64,..."
@@ -572,6 +575,14 @@ export class ToolHandlers {
           return this.success(result);
         }
 
+        // Connection Info
+        case 'get_connection_info':
+          return this.success({
+            wsUrl: `ws://localhost:${this.wsPort}/extension`,
+            port: this.wsPort,
+            hint: 'Enter localhost:PORT in the Tethernet extension popup to connect.',
+          });
+
         // Connection Status
         case 'get_connection_status': {
           const ollamaAvailable = ollamaConfig.enabled ? await checkOllamaConnection() : false;
@@ -587,6 +598,7 @@ export class ToolHandlers {
             extensionConnected: this.connectionManager.getState().extensionConnected,
             primaryTabId: this.primaryTabId,
             tabCount,
+            wsPort: this.wsPort,
             ollamaEnabled: ollamaConfig.enabled,
             ollamaAvailable,
             ollamaBaseUrl: ollamaConfig.enabled ? ollamaConfig.baseUrl : null,
@@ -710,6 +722,73 @@ Provide your analysis based on the HTML content above.`;
               message: err.message || String(err),
             });
           }
+        }
+
+        // Extension Debug Bridge
+        case 'check_debug_bridge': {
+          const tabId = this.ensureTabId(args.tabId);
+          const result = await this.sendToExtension('execute_script', {
+            tabId,
+            frameId: args.frameId,
+            script: `(function() {
+              if (window.__TETHERNET_DEBUG_BRIDGE) {
+                return {
+                  present: true,
+                  version: window.__TETHERNET_DEBUG_BRIDGE.version,
+                  extensionId: window.__TETHERNET_DEBUG_BRIDGE.extensionId,
+                  extensionName: window.__TETHERNET_DEBUG_BRIDGE.extensionName,
+                  injectedAt: window.__TETHERNET_DEBUG_BRIDGE.injectedAt
+                };
+              }
+              return { present: false };
+            })()`,
+          });
+          return this.success(result?.result || result);
+        }
+
+        case 'query_extension_debug': {
+          const tabId = this.ensureTabId(args.tabId);
+          const timeout = args.timeout || 5000;
+          const request = args.request || { type: 'getState' };
+
+          const result = await this.sendToExtension('execute_script', {
+            tabId,
+            frameId: args.frameId,
+            script: `(async () => {
+              const timeout = ${timeout};
+              const request = ${JSON.stringify(request)};
+
+              // Check bridge exists
+              if (!window.__TETHERNET_DEBUG_BRIDGE) {
+                return { error: 'Debug bridge not found on this page' };
+              }
+
+              // Wait for response with timeout
+              const responsePromise = new Promise((resolve) => {
+                const handler = () => {
+                  window.removeEventListener('__tethernet_debug_response', handler);
+                  const response = window.__tethernet_debug_response;
+                  delete window.__tethernet_debug_response;
+                  resolve(response);
+                };
+                window.addEventListener('__tethernet_debug_response', handler, { once: true });
+              });
+
+              const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Debug bridge timeout')), timeout)
+              );
+
+              // Fire request
+              window.dispatchEvent(new CustomEvent('__tethernet_debug_request', { detail: request }));
+
+              try {
+                return await Promise.race([responsePromise, timeoutPromise]);
+              } catch (e) {
+                return { error: e.message };
+              }
+            })()`,
+          });
+          return this.success(result?.result || result);
         }
 
         default:

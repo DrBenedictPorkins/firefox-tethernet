@@ -1,11 +1,7 @@
 export const CONFIG = {
-  port: 19888,
   websocket: {
     path: '/extension',
     pingInterval: 30000,
-  },
-  sse: {
-    path: '/sse',
   },
   buffer: {
     maxConsoleLogs: 1000,

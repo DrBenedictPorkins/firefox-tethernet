@@ -1,6 +1,6 @@
 import { startServer } from './server.js';
 
-startServer().catch((error) => {
-  console.error('Failed to start server:', error);
+startServer().catch(err => {
+  process.stderr.write(`[Tethernet] Fatal error: ${err}\n`);
   process.exit(1);
 });

@@ -24,7 +24,7 @@ describe('ToolHandlers', () => {
   beforeEach(() => {
     connectionManager = new ConnectionManager();
     mockSendToExtension = vi.fn().mockResolvedValue({ success: true });
-    handlers = new ToolHandlers(mockSendToExtension, connectionManager);
+    handlers = new ToolHandlers(mockSendToExtension, connectionManager, 0);
   });
 
   describe('Tab Management', () => {

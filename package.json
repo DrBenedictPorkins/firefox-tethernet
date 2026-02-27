@@ -1,5 +1,5 @@
 {
-  "name": "foxhole",
+  "name": "tethernet",
   "version": "1.0.0",
   "description": "Firefox debugging bridge for Claude Code via MCP",
   "private": true,

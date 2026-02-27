@@ -448,11 +448,26 @@ export const TOOLS: MCPToolDefinition[] = [
         },
         saveTo: {
           type: 'string',
-          description: 'File path to save screenshot. Defaults to /tmp/foxhole-screenshot-{timestamp}.{format}',
+          description: 'File path to save screenshot. Defaults to /tmp/tethernet-screenshot-{timestamp}.{format}',
         },
         returnBase64: {
           type: 'boolean',
           description: 'If true, returns base64 data instead of saving to file. Default: false',
+        },
+        cropTo: {
+          type: 'object',
+          description: 'Crop to a specific region (CSS pixels, viewport-relative). Use for token-efficient confirmation shots after actions.',
+          properties: {
+            x: { type: 'number', description: 'Left edge in CSS pixels' },
+            y: { type: 'number', description: 'Top edge in CSS pixels' },
+            width: { type: 'number', description: 'Width in CSS pixels' },
+            height: { type: 'number', description: 'Height in CSS pixels' },
+          },
+          required: ['x', 'y', 'width', 'height'],
+        },
+        selector: {
+          type: 'string',
+          description: 'CSS selector — crops screenshot to that element\'s bounding box. Alternative to cropTo.',
         },
       },
     },
@@ -677,6 +692,13 @@ NOT FOR: Browser APIs like history, bookmarks, notifications (use execute_backgr
     },
   },
 
+  // Connection Info
+  {
+    name: 'get_connection_info',
+    description: 'Returns the WebSocket URL and port for the Firefox extension. Use this to find the host:port to enter in the extension popup.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+
   // Connection Status
   {
     name: 'get_connection_status',
@@ -792,6 +814,50 @@ NOT FOR: Browser APIs like history, bookmarks, notifications (use execute_backgr
         },
       },
       required: ['prompt'],
+    },
+  },
+
+  // Extension Debug Bridge
+  {
+    name: 'check_debug_bridge',
+    description: 'Check if a Tethernet debug bridge is present on the page. Extensions with debug bridges expose window.__TETHERNET_DEBUG_BRIDGE with metadata.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabId: {
+          type: 'number',
+          description: 'Tab ID (default: primary tab)',
+        },
+        frameId: {
+          type: 'number',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
+        },
+      },
+    },
+  },
+  {
+    name: 'query_extension_debug',
+    description: 'Query an extension\'s debug bridge. Sends a request via CustomEvent and waits for response. Standard request types: ping, getState, getErrors, getStorage, getManifest.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        request: {
+          type: 'object',
+          description: 'Request payload. Default: { type: "getState" }. Standard types: ping, getState, getErrors, getStorage, getManifest',
+        },
+        timeout: {
+          type: 'number',
+          description: 'Timeout in milliseconds (default 5000)',
+        },
+        tabId: {
+          type: 'number',
+          description: 'Tab ID (default: primary tab)',
+        },
+        frameId: {
+          type: 'number',
+          description: 'Frame ID for iframes (default: 0 = top frame)',
+        },
+      },
     },
   },
 ];
