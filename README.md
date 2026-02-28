@@ -4,6 +4,8 @@ Firefox browser automation for Claude Code and Claude Desktop via MCP (Model Con
 
 Tethernet lets Claude see into and control your Firefox browser — console logs, network requests, DOM content, screenshots, and more through MCP tools.
 
+Unlike [foxhole-claude](https://github.com/DrBenedictPorkins/foxhole-claude), which embeds Claude directly in Firefox as a sidebar (calls the Anthropic API with your own key, builds persistent per-site knowledge), Tethernet bridges your existing **Claude Code or Claude Desktop session** to Firefox via MCP — no separate API key needed, Claude lives outside the browser and controls it through your authenticated session.
+
 ## Why Tethernet? (vs Playwright/Puppeteer)
 
 Playwright and Puppeteer spawn **new, isolated browser instances**. Tethernet connects to **your existing Firefox session**.
