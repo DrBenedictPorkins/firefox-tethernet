@@ -449,28 +449,36 @@ export class ToolHandlers {
         // Screenshots
         case 'take_screenshot': {
           const tabId = this.ensureTabId(args.tabId);
-          const format = (args.format as string) || 'png';
+
+          // For base64 return, force JPEG to keep payload manageable
+          const format = args.returnBase64 ? 'jpeg' : ((args.format as string) || 'png');
+          const quality = args.returnBase64 ? 70 : (args.quality as number | undefined);
+
           const result = await this.sendToExtension('take_screenshot', {
             tabId,
             fullPage: args.fullPage,
             format,
+            quality,
             cropTo: args.cropTo,
             selector: args.selector,
           });
 
-          // If returnBase64 is true, return the raw base64 data
+          // result.dataUrl is a data URI: "data:image/jpeg;base64,..."
+          const dataUrl = result.dataUrl as string;
+          const base64Data = dataUrl.split(',')[1];
+
+          // If returnBase64, return as MCP image content (rendered inline by Claude Desktop)
           if (args.returnBase64) {
-            return this.success(result);
+            return {
+              content: [{ type: 'image' as const, data: base64Data, mimeType: 'image/jpeg' }],
+              isError: false,
+            } as any;
           }
 
-          // Default: save to file and return path
+          // Default: save to file and return path (Claude Code uses Read tool to view)
           const timestamp = Date.now();
           const filename = `tethernet-screenshot-${timestamp}.${format}`;
           const filePath = (args.saveTo as string) || join('/tmp', filename);
-
-          // result.dataUrl is a data URI: "data:image/png;base64,..."
-          const dataUrl = result.dataUrl as string;
-          const base64Data = dataUrl.split(',')[1]; // Extract base64 part after comma
           const buffer = Buffer.from(base64Data, 'base64');
           await writeFile(filePath, buffer);
 
@@ -574,6 +582,41 @@ export class ToolHandlers {
           const result = await this.sendToExtension('get_tab_buffer_summary', {});
           return this.success(result);
         }
+
+        case 'get_started':
+          return this.success({
+            instructions: `Tethernet connects you to the user's existing Firefox session.
+
+BEFORE any interactive task:
+1. Run SPA detection to decide whether to automate or guide:
+
+   execute_script({ code: \`({
+     react: !!(window.React || document.querySelector('[data-reactroot]') || Object.keys(window).some(k => k.startsWith('__react'))),
+     vue: !!(window.Vue || window.__vue_app__),
+     angular: !!(window.angular || window.ng),
+     next: !!window.__NEXT_DATA__,
+     obfuscated: Array.from(document.querySelectorAll('[class]')).slice(0, 20)
+       .flatMap(el => [...el.classList]).filter(c => /^[a-z0-9]{4,8}$/.test(c)).length > 8
+   })\` })
+
+   If any value is true → guide mode (screenshots only).
+   If all false → automation may work, but fall back to guide mode after 2 failed attempts.
+
+GUIDE MODE (screenshots + instructions):
+- take_screenshot → tell user exactly what to click → wait for confirmation → take cropped screenshot to verify → repeat
+- User does all clicking and typing. You observe and instruct.
+
+AUTOMATION MODE (DOM allowed, non-SPA only):
+- click_element, execute_script, fill_form are available
+- After 2 failed attempts with no visible change → switch to guide mode immediately
+
+DATA CAPTURE (only when explicitly requested):
+- dom_stats() first, then get_dom_structure(), then get_page_content() only if htmlSize < 50KB
+- query_buffer for console/network/errors/websocket
+- get_local_storage, get_session_storage, get_cookies
+
+CLARIFY before starting if the request is ambiguous.`,
+          });
 
         // Connection Info
         case 'get_connection_info':

@@ -1,5 +1,5 @@
 /**
- * FoxHole Popup Script
+ * Tethernet Popup Script
  * Displays connection status and extension information
  */
 

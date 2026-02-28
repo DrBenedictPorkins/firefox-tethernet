@@ -1,5 +1,5 @@
 /**
- * FoxHole Background Script - Extension as Data Server
+ * Tethernet Background Script - Extension as Data Server
  * The extension is the SOURCE OF TRUTH for all browser data.
  * The MCP server is a stateless proxy that queries the extension on-demand.
  */

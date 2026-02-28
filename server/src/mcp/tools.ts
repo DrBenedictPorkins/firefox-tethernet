@@ -1,6 +1,17 @@
 import type { MCPToolDefinition } from './types.js';
 
 export const TOOLS: MCPToolDefinition[] = [
+  // Getting Started
+  {
+    name: 'get_started',
+    description:
+      'Call this first before starting any browser task. Returns instructions on how to use Tethernet effectively, including when to guide the user vs when to automate.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+
   // Tab Management
   {
     name: 'list_tabs',
@@ -429,7 +440,7 @@ export const TOOLS: MCPToolDefinition[] = [
   // Screenshots
   {
     name: 'take_screenshot',
-    description: 'Take screenshot. Saves to /tmp by default, or returnBase64=true for data.',
+    description: 'Take screenshot. Default: saves to /tmp and returns the file path — use the Read tool on that path to view the image (Claude Code). Set returnBase64=true to get an inline image response (Claude Desktop only) — automatically uses JPEG compression.',
     inputSchema: {
       type: 'object',
       properties: {

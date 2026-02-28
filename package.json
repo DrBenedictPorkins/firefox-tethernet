@@ -12,7 +12,8 @@
     "start": "cd server && npm start",
     "ext:run": "web-ext run --source-dir=extension",
     "ext:lint": "web-ext lint --source-dir=extension",
-    "ext:build": "web-ext build --source-dir=extension"
+    "ext:build": "web-ext build --source-dir=extension",
+    "kill:cd": "pkill -9 -f 'disclaimer.*foxhole-debug-bridge' || true"
   },
   "devDependencies": {
     "web-ext": "^8.3.0"

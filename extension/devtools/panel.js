@@ -1,9 +1,9 @@
 /**
- * FoxHole DevTools Panel Script
+ * Tethernet DevTools Panel Script
  * Future implementation for displaying captured data
  */
 
-console.log('[FoxHole] DevTools panel initialized');
+console.log('[Tethernet] DevTools panel initialized');
 
 // Future implementation:
 // - Display console logs

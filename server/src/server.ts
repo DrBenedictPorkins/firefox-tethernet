@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -7,70 +8,55 @@ import { ToolHandlers } from './mcp/handlers.js';
 import { TOOLS } from './mcp/tools.js';
 import { SessionLogger } from './logger/session.js';
 
-// Server instructions for MCP
-// NOTE: Detailed usage instructions are in the tethernet agent (~/.claude/agents/tethernet-agent.md)
-// Keep this minimal to reduce token usage on every tool call
-const serverInstructions = `Tethernet - Firefox Browser Automation & Inspection
+// Server instructions for MCP — injected into system prompt for all clients (Claude Code, Claude Desktop, etc.)
+const serverInstructions = `Tethernet - Firefox Browser Automation
 
-IMPORTANT: Use the 'tethernet' agent for all browser automation tasks. The agent has detailed instructions for efficient tool usage.
+## How to guide users through browser tasks
 
-Quick reference:
-- get_connection_info - Get WebSocket URL/port to enter in extension popup
-- get_connection_status, list_tabs, set_primary_tab - Connection & tab management
-- navigate, reload_page, go_back/forward - Navigation
-- execute_script - PRIMARY tool for DOM/data extraction and manipulation
-- dom_stats, get_dom_structure, get_page_content - DOM inspection (see workflow below)
-- query_selector, get_element_properties - Element lookup
-- click_element, type_text, fill_form - Interaction
-- query_buffer - Query console, errors, network, websocket with JS transforms
-- take_screenshot - Capture page
+Before any interactive task, run this SPA detection check first:
 
-All tools default to primary tab if tabId not specified.
-Use frameId parameter for iframe targeting (0 = top frame).
+\`\`\`javascript
+execute_script({ code: \`({
+  react: !!(window.React || document.querySelector('[data-reactroot]') || Object.keys(window).some(k => k.startsWith('__react'))),
+  vue: !!(window.Vue || window.__vue_app__),
+  angular: !!(window.angular || window.ng),
+  next: !!window.__NEXT_DATA__,
+  obfuscated: Array.from(document.querySelectorAll('[class]')).slice(0, 20)
+    .flatMap(el => [...el.classList]).filter(c => /^[a-z0-9]{4,8}$/.test(c)).length > 8
+})\` })
+\`\`\`
 
-## DOM Inspection Workflow (IMPORTANT)
+**If any value is true → the site uses a JavaScript framework. Do not attempt DOM automation. Use the screenshot-and-guide approach only** (unless the user explicitly asks for script execution or DOM inspection).
 
-Large pages can flood context. Always follow this pattern:
+**If all values are false → you may attempt DOM automation**, but fall back to screenshot-and-guide after two failed attempts.
 
-1. **dom_stats()** - Check htmlSize first. If >50KB, do NOT use get_page_content
-2. **get_dom_structure({ depth: 1 })** - Get top-level structure (~2-3KB)
-3. **get_dom_structure({ selector: '#main', depth: 2 })** - Drill into sections
-4. **execute_script** - For targeted data extraction once you know the structure
+### Screenshot-and-guide approach
 
-Example: Paramount+ homepage is 907KB. Using get_dom_structure progressively: ~10KB total.
+1. Navigate to the correct URL if needed
+2. Call take_screenshot to see the current page state
+3. Tell the user exactly what to click or type: "Click the blue '+' button in the top-right corner"
+4. Wait for them to confirm they did it
+5. Call take_screenshot again (cropped to the relevant area) to confirm it worked
+6. Continue to the next step
 
-Raw content detection: If page is JSON/XML/text (single <pre> in body), get_dom_structure returns size + preview instead of structure.
+The user performs all clicks and form input. You observe via screenshots and give precise instructions.
 
-## Ollama Integration (Local LLM)
+Before starting, ask for clarification if the request is ambiguous (e.g. "new user" — new to the organization, or new to a specific group?).
 
-ollama_analyze_page - Sends page HTML to local Ollama server for analysis.
-Use when: Large pages where you need to extract specific data without consuming context tokens.
+## Data capture tools (use only when explicitly requested)
 
-**When to use:**
-- Extracting structured data from complex HTML (products, prices, links, etc.)
-- Needle-in-haystack searches on large pages
-- Summarizing page content
+- DOM inspection: dom_stats() first, then get_dom_structure(), then get_page_content() only if htmlSize < 50KB
+- Script execution: execute_script (slice results to stay under 50KB)
+- Captured data: query_buffer({ type: 'console'|'network'|'errors'|'websocket', transform: '...' })
+- Storage: get_local_storage, get_session_storage, get_cookies
 
-**When NOT to use:**
-- Simple queries that execute_script can handle
-- Small pages (< 10KB HTML)
-- When you need precise DOM manipulation (use execute_script)
+## Connecting to Firefox
 
-**Error handling:**
-- ollama_not_configured: OLLAMA_BASE_URL env var not set. Feature disabled.
-- ollama_unavailable: Ollama server not reachable. Fallback to get_page_content + process in context, or ask user if server is online.
-- ollama_error: Model error (context too long, etc). Try different approach.
+Call get_connection_info to get the current port — it changes every session. The user enters localhost:PORT in the Tethernet Firefox extension popup to connect.
 
-**Check availability:** get_connection_status returns ollamaEnabled and ollamaAvailable booleans.
+## Claude Code users
 
-## Rendering HTML Reports in Browser
-
-To display HTML reports, formatted data, or generated content in the browser:
-
-1. Write HTML to a temp file (e.g., /tmp/report.html)
-2. Use navigate tool: navigate({ url: 'file:///tmp/report.html' })
-
-**Avoid:** Data URIs (blocked by Firefox), about:blank (no content script), injecting into other sites.`;
+Use the 'tethernet' subagent for all browser tasks.`;
 
 /**
  * Creates the MCP server instance (called once, not per-request)
@@ -176,4 +162,36 @@ export async function startServer(): Promise<void> {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  process.stdin.on('close', shutdown);
+
+  // Exit when parent process dies.
+  // Claude Desktop spawns: CD → disclaimer wrapper → node server
+  // Claude Code spawns:    CC → node server (direct)
+  // When CD exits, disclaimer gets reparented to init (ppid=1) but stays alive.
+  // So for the CD case we must watch disclaimer's ppid, not disclaimer itself.
+  const parentPid = process.ppid;
+  let watchViaGrandparent = false;
+  try {
+    const parentComm = execSync(`ps -o comm= -p ${parentPid} 2>/dev/null`, { encoding: 'utf8' }).trim();
+    watchViaGrandparent = parentComm.includes('disclaimer');
+  } catch { /* ignore */ }
+
+  setInterval(() => {
+    try {
+      if (watchViaGrandparent) {
+        // CD case: if disclaimer's ppid is 1, CD has already exited
+        const grandparentPid = parseInt(
+          execSync(`ps -o ppid= -p ${parentPid} 2>/dev/null`, { encoding: 'utf8' }).trim()
+        );
+        if (isNaN(grandparentPid) || grandparentPid <= 1) {
+          shutdown();
+        }
+      } else {
+        // CC case: check direct parent is alive
+        process.kill(parentPid, 0);
+      }
+    } catch {
+      shutdown();
+    }
+  }, 5000);
 }

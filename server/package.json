@@ -1,7 +1,7 @@
 {
   "name": "tethernet-server",
   "version": "1.0.0",
-  "description": "FoxHole MCP Server - Firefox debugging bridge for Claude Code",
+  "description": "Tethernet MCP Server - Firefox debugging bridge for Claude Code",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

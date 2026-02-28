@@ -47,6 +47,8 @@ export class ExtensionConnectionHandler {
   }
 
   async close(): Promise<void> {
+    // Terminate all active connections so wss.close() doesn't hang
+    this.wss.clients.forEach(client => client.terminate());
     return new Promise((resolve) => {
       this.wss.close(() => {
         this.httpServer.close(() => resolve());

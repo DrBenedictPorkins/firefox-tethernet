@@ -1,14 +1,14 @@
 /**
- * FoxHole DevTools Script
- * Registers the FoxHole panel in Firefox DevTools
+ * Tethernet DevTools Script
+ * Registers the Tethernet panel in Firefox DevTools
  */
 
 browser.devtools.panels.create(
-  'FoxHole',
+  'Tethernet',
   'icons/icon-32.png',
   'devtools/panel.html'
 ).then((panel) => {
-  console.log('[FoxHole] DevTools panel created');
+  console.log('[Tethernet] DevTools panel created');
 }).catch((error) => {
-  console.error('[FoxHole] Failed to create DevTools panel:', error);
+  console.error('[Tethernet] Failed to create DevTools panel:', error);
 });

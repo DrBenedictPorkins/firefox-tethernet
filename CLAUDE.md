@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## CRITICAL: Git Operations
+
+**NEVER commit or push without explicit user request.**
+
 ## CRITICAL: Tethernet Port
 
 **ALWAYS call `get_connection_info` tool when asked for the Tethernet port. NEVER use a port from conversation history — the port changes every session.**
