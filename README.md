@@ -1,8 +1,8 @@
 # Tethernet Debug Bridge
 
-Firefox debugging bridge for Claude Code via MCP (Model Context Protocol).
+Firefox browser automation for Claude Code and Claude Desktop via MCP (Model Context Protocol).
 
-Tethernet allows Claude Code to see into and control your Firefox browser — console logs, network requests, DOM content, screenshots, and more through MCP tools.
+Tethernet lets Claude see into and control your Firefox browser — console logs, network requests, DOM content, screenshots, and more through MCP tools.
 
 ## Why Tethernet? (vs Playwright/Puppeteer)
 
@@ -48,7 +48,7 @@ If any component is already installed, the script asks whether to update it.
 cd server && npm install && npm run build
 
 # Register globally with Claude Code (use your actual path)
-claude mcp add tethernet --scope user -- node /path/to/tethernet-debug-bridge/server/dist/index.js
+claude mcp add tethernet --scope user -- node /path/to/firefox-tethernet/server/dist/index.js
 ```
 
 **2. Install the tethernet agent**
@@ -87,7 +87,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "tethernet": {
       "command": "node",
-      "args": ["/path/to/tethernet-debug-bridge/server/dist/index.js"]
+      "args": ["/path/to/firefox-tethernet/server/dist/index.js"]
     }
   }
 }
