@@ -74,10 +74,16 @@ function updateSessionInfo(session) {
   }
 
   const duration = session.connectedAt ? formatDuration(Date.now() - session.connectedAt) : '';
-  sessionInfoElement.innerHTML = `
-    <div class="session-project">${session.projectName || 'Unknown'}</div>
-    <div class="session-details">PID: ${session.pid} • ${duration}</div>
-  `;
+
+  const project = document.createElement('div');
+  project.className = 'session-project';
+  project.textContent = `${session.clientType || 'Claude'} • localhost:${session.port}`;
+
+  const details = document.createElement('div');
+  details.className = 'session-details';
+  details.textContent = `PID: ${session.pid} • ${duration}`;
+
+  sessionInfoElement.replaceChildren(project, details);
 }
 
 function updateConnectSection(state) {
@@ -321,6 +327,9 @@ window.addEventListener('unload', () => {
 browser.runtime.onMessage.addListener((message) => {
   if (message.type === 'state_changed') {
     updateStatus(message.connectionState, null, message.connectedAt);
+    updateSessionInfo(message.sessionInfo);
+  }
+  if (message.type === 'session_info_updated') {
     updateSessionInfo(message.sessionInfo);
   }
 });

@@ -264,6 +264,8 @@ function connect() {
         if (message.type === 'session_info') {
           sessionInfo = message.data;
           console.log('[Tethernet] Session info received:', sessionInfo.projectName, 'PID:', sessionInfo.pid);
+          // Push update to any open popups
+          browser.runtime.sendMessage({ type: 'session_info_updated', sessionInfo }).catch(() => {});
           return;
         }
 
@@ -613,11 +615,11 @@ async function handleListFrames(params) {
 }
 
 async function handleTakeScreenshot(params) {
-  const { tabId, format, quality, cropTo, selector } = params;
-  const options = {
-    format: format || 'png'
-  };
-  if (quality) options.quality = quality;
+  const { tabId, format, quality, cropTo, selector, scale } = params;
+  const captureFormat = format || 'jpeg';
+  const captureQuality = quality || 80;
+  const options = { format: captureFormat };
+  if (captureFormat === 'jpeg') options.quality = captureQuality;
 
   const dataUrl = await browser.tabs.captureVisibleTab(null, options);
 
@@ -626,7 +628,6 @@ async function handleTakeScreenshot(params) {
     let rect = cropTo;
 
     if (selector) {
-      // Get element bounds from the page
       const results = await browser.tabs.executeScript(tabId, {
         code: `(function() {
           const el = document.querySelector(${JSON.stringify(selector)});
@@ -643,14 +644,19 @@ async function handleTakeScreenshot(params) {
         code: 'window.devicePixelRatio || 1'
       });
       const dpr = (dprResults && dprResults[0]) || 1;
-      return { dataUrl: await cropDataUrl(dataUrl, rect, dpr) };
+      return { dataUrl: await cropDataUrl(dataUrl, rect, dpr, captureFormat, captureQuality, scale) };
     }
+  }
+
+  // Apply scale-only (no crop)
+  if (scale && scale < 1) {
+    return { dataUrl: await scaleDataUrl(dataUrl, scale, captureFormat, captureQuality) };
   }
 
   return { dataUrl };
 }
 
-function cropDataUrl(dataUrl, cssRect, dpr) {
+function cropDataUrl(dataUrl, cssRect, dpr, format, quality, scale) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -658,13 +664,36 @@ function cropDataUrl(dataUrl, cssRect, dpr) {
       const y = Math.max(0, Math.round(cssRect.y * dpr));
       const w = Math.min(Math.round(cssRect.width * dpr), img.width - x);
       const h = Math.min(Math.round(cssRect.height * dpr), img.height - y);
+      const outW = scale ? Math.round(w * scale) : w;
+      const outH = scale ? Math.round(h * scale) : h;
       const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(img, x, y, w, h, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/png'));
+      canvas.width = outW;
+      canvas.height = outH;
+      canvas.getContext('2d').drawImage(img, x, y, w, h, 0, 0, outW, outH);
+      const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const qualityArg = format === 'jpeg' ? quality / 100 : undefined;
+      resolve(canvas.toDataURL(mimeType, qualityArg));
     };
     img.onerror = () => reject(new Error('Failed to load screenshot for cropping'));
+    img.src = dataUrl;
+  });
+}
+
+function scaleDataUrl(dataUrl, scale, format, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const outW = Math.round(img.width * scale);
+      const outH = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = outW;
+      canvas.height = outH;
+      canvas.getContext('2d').drawImage(img, 0, 0, outW, outH);
+      const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const qualityArg = format === 'jpeg' ? quality / 100 : undefined;
+      resolve(canvas.toDataURL(mimeType, qualityArg));
+    };
+    img.onerror = () => reject(new Error('Failed to scale screenshot'));
     img.src = dataUrl;
   });
 }

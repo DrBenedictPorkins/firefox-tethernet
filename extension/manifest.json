@@ -2,12 +2,16 @@
   "manifest_version": 2,
   "name": "Tethernet",
   "version": "1.0.0",
-  "description": "Connect Firefox to Tethernet for browser automation and inspection",
+  "description": "Claude browser co-pilot — guides you step by step through complex web workflows in your real logged-in Firefox session via Claude Code or Claude Desktop.",
 
   "browser_specific_settings": {
     "gecko": {
-      "id": "tethernet@localhost",
-      "strict_min_version": "91.0"
+      "id": "tethernet@dr.benedict.porkins",
+      "strict_min_version": "91.0",
+      "data_collection_permissions": {
+        "required": ["websiteContent", "browsingActivity"],
+        "optional": []
+      }
     }
   },
 

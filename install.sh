@@ -2,11 +2,13 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVER_DIST="$SCRIPT_DIR/server/dist/index.js"
 AGENT_SRC="$SCRIPT_DIR/agents/tethernet-agent.md"
 AGENT_DST="$HOME/.claude/agents/tethernet-agent.md"
 CLAUDE_MD="$HOME/.claude/CLAUDE.md"
 CLAUDE_AGENTS_DIR="$HOME/.claude/agents"
+
+NPX_CMD="npx"
+NPX_ARGS=("-y" "@drbenedictporkins/tethernet-mcp")
 
 step()  { echo "==> $1"; }
 ok()    { echo "    [ok] $1"; }
@@ -27,36 +29,22 @@ if ! command -v claude &>/dev/null; then
   echo "[err] claude CLI not found. Install Claude Code first." && exit 1
 fi
 
-# ── Step 1: Build server ───────────────────────────────────────────────────
-step "Building server..."
-if [ -f "$SERVER_DIST" ]; then
-  if ask_update "Server build"; then
-    (cd "$SCRIPT_DIR/server" && npm run build)
-    ok "Server rebuilt"
-  else
-    ok "Skipped"
-  fi
-else
-  (cd "$SCRIPT_DIR/server" && npm install && npm run build)
-  ok "Server built → $SERVER_DIST"
-fi
-
-# ── Step 2: Register MCP server (global) ──────────────────────────────────
+# ── Step 1: Register MCP server with Claude Code ───────────────────────────
 step "Registering MCP server with Claude Code (global)..."
 if claude mcp list 2>/dev/null | grep -q "tethernet"; then
   if ask_update "MCP server 'tethernet'"; then
     claude mcp remove tethernet 2>/dev/null || true
-    claude mcp add tethernet --scope user -- node "$SERVER_DIST"
+    claude mcp add tethernet --scope user -- "$NPX_CMD" "${NPX_ARGS[@]}"
     ok "MCP server updated"
   else
     ok "Skipped"
   fi
 else
-  claude mcp add tethernet --scope user -- node "$SERVER_DIST"
+  claude mcp add tethernet --scope user -- "$NPX_CMD" "${NPX_ARGS[@]}"
   ok "MCP server registered globally"
 fi
 
-# ── Step 3: Install tethernet agent ───────────────────────────────────────
+# ── Step 2: Install tethernet agent ───────────────────────────────────────
 step "Installing tethernet agent..."
 mkdir -p "$CLAUDE_AGENTS_DIR"
 if [ -f "$AGENT_DST" ]; then
@@ -71,7 +59,7 @@ else
   ok "Agent installed → $AGENT_DST"
 fi
 
-# ── Step 4: Inject block into ~/.claude/CLAUDE.md ─────────────────────────
+# ── Step 3: Inject block into ~/.claude/CLAUDE.md ─────────────────────────
 step "Configuring ~/.claude/CLAUDE.md..."
 touch "$CLAUDE_MD"
 
@@ -115,10 +103,16 @@ fi
 
 rm "$BLOCK_FILE"
 
-# ── Step 5: Claude Desktop (optional) ─────────────────────────────────────
-DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+# ── Step 4: Claude Desktop (optional) ─────────────────────────────────────
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+elif [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* || "$OSTYPE" == "win32"* ]]; then
+  DESKTOP_CONFIG="$APPDATA/Claude/claude_desktop_config.json"
+else
+  DESKTOP_CONFIG=""
+fi
 
-if [ -f "$DESKTOP_CONFIG" ]; then
+if [ -n "$DESKTOP_CONFIG" ] && [ -f "$DESKTOP_CONFIG" ]; then
   step "Configuring Claude Desktop..."
   if python3 -c "import json; d=json.load(open('$DESKTOP_CONFIG')); exit(0 if 'tethernet' in d.get('mcpServers',{}) else 1)" 2>/dev/null; then
     if ask_update "Tethernet in Claude Desktop"; then
@@ -126,7 +120,7 @@ if [ -f "$DESKTOP_CONFIG" ]; then
 import json
 path = "$DESKTOP_CONFIG"
 with open(path) as f: d = json.load(f)
-d.setdefault('mcpServers', {})['tethernet'] = {"command": "node", "args": ["$SERVER_DIST"]}
+d.setdefault('mcpServers', {})['tethernet'] = {"command": "npx", "args": ["-y", "@drbenedictporkins/tethernet-mcp"]}
 with open(path, 'w') as f: json.dump(d, f, indent=2)
 PYEOF
       ok "Claude Desktop updated — restart Claude Desktop"
@@ -138,7 +132,7 @@ PYEOF
 import json
 path = "$DESKTOP_CONFIG"
 with open(path) as f: d = json.load(f)
-d.setdefault('mcpServers', {})['tethernet'] = {"command": "node", "args": ["$SERVER_DIST"]}
+d.setdefault('mcpServers', {})['tethernet'] = {"command": "npx", "args": ["-y", "@drbenedictporkins/tethernet-mcp"]}
 with open(path, 'w') as f: json.dump(d, f, indent=2)
 PYEOF
     ok "Tethernet added to Claude Desktop — restart Claude Desktop"
@@ -150,6 +144,7 @@ echo
 echo "Tethernet installed."
 echo
 echo "Next steps:"
-echo "  1. Load the extension in Firefox:  npm run ext:run"
+echo "  1. Install the Firefox extension from AMO:"
+echo "     https://addons.mozilla.org/en-US/firefox/addon/tethernet/"
 echo "  2. In Claude Code, call get_connection_info to get the port"
 echo "  3. In the extension popup, enter localhost:PORT and click Connect"

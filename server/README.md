@@ -1,10 +1,44 @@
 # Tethernet MCP Server
 
-Browser automation for Claude Code and Claude Desktop via Firefox.
+**Claude browser co-pilot — guides you step by step through complex web workflows in your real logged-in Firefox session.**
+
+This is the MCP server component **(1 of 2)**. It connects Claude Code or Claude Desktop to your Firefox browser via the Model Context Protocol (stdio transport).
+
+> **The Firefox extension is also required.** Install it from:
+> - [Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/tethernet/) — search "Tethernet" if the link is stale
+> - [GitHub source](https://github.com/DrBenedictPorkins/tethernet-debug-bridge/tree/main/extension)
 
 ## Quick Start
 
-See the [root README](../README.md) for installation instructions.
+### Claude Code
+
+```bash
+claude mcp add tethernet --scope user -- npx -y @drbenedictporkins/tethernet-mcp
+```
+
+### Claude Desktop
+
+Edit your config file and add to `mcpServers`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "tethernet": {
+      "command": "npx",
+      "args": ["-y", "@drbenedictporkins/tethernet-mcp"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop after editing.
+
+### After installing
+
+Install the Firefox extension, open the Tethernet popup, and enter the port shown by `get_connection_info`.
 
 ## Development
 

@@ -1,15 +1,37 @@
 {
-  "name": "tethernet-server",
-  "version": "1.0.0",
-  "description": "Tethernet MCP Server - Firefox debugging bridge for Claude Code",
+  "name": "@drbenedictporkins/tethernet-mcp",
+  "version": "1.0.3",
+  "description": "Tethernet MCP server — connects Claude Code and Claude Desktop to your live Firefox session. Claude sees your screen, reads page state, and guides you step by step through complex web workflows (App Store Connect, AWS, Stripe, DNS, etc.) in your real logged-in browser.",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "tethernet-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "test": "vitest"
   },
+  "keywords": [
+    "mcp",
+    "firefox",
+    "browser-automation",
+    "claude",
+    "claude-code",
+    "model-context-protocol",
+    "browser",
+    "co-pilot"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DrBenedictPorkins/tethernet-debug-bridge.git"
+  },
+  "homepage": "https://github.com/DrBenedictPorkins/tethernet-debug-bridge#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.0",
     "ws": "^8.16.0",

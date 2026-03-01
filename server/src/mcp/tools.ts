@@ -440,7 +440,7 @@ export const TOOLS: MCPToolDefinition[] = [
   // Screenshots
   {
     name: 'take_screenshot',
-    description: 'Take screenshot. Default: saves to /tmp and returns the file path — use the Read tool on that path to view the image (Claude Code). Set returnBase64=true to get an inline image response (Claude Desktop only) — automatically uses JPEG compression.',
+    description: 'Take screenshot. Default: JPEG q80, saves to /tmp and returns the file path — use the Read tool on that path to view the image (Claude Code). Set returnBase64=true to get an inline image response (Claude Desktop only). Use cropTo or selector to capture only the relevant area and minimize token usage. Use scale (e.g. 0.5) to halve dimensions — helpful on Retina displays where the native capture is 2x.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -455,7 +455,15 @@ export const TOOLS: MCPToolDefinition[] = [
         format: {
           type: 'string',
           enum: ['png', 'jpeg'],
-          description: 'Image format',
+          description: 'Image format (default: jpeg)',
+        },
+        quality: {
+          type: 'number',
+          description: 'JPEG quality 1-100 (default: 80). Ignored for PNG.',
+        },
+        scale: {
+          type: 'number',
+          description: 'Scale factor 0-1 to reduce output dimensions (e.g. 0.5 halves width and height). Useful on Retina/HiDPI displays to normalize to 1x.',
         },
         saveTo: {
           type: 'string',

@@ -18,6 +18,11 @@ export class ExtensionConnectionHandler {
   private ws: WebSocket | null = null;
   private pendingRequests = new Map<string, PendingRequest>();
   private port: number = 0;
+  private clientType: 'Claude Code' | 'Claude Desktop' = 'Claude Code';
+
+  setClientType(type: 'Claude Code' | 'Claude Desktop') {
+    this.clientType = type;
+  }
 
   constructor(
     private connectionManager: ConnectionManager
@@ -83,7 +88,8 @@ export class ExtensionConnectionHandler {
         cwd: process.cwd(),
         projectName: path.basename(process.cwd()),
         connectedAt: Date.now(),
-        port: this.port
+        port: this.port,
+        clientType: this.clientType
       }
     };
     socket.send(JSON.stringify(sessionInfo));

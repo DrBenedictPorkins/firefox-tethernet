@@ -450,9 +450,8 @@ export class ToolHandlers {
         case 'take_screenshot': {
           const tabId = this.ensureTabId(args.tabId);
 
-          // For base64 return, force JPEG to keep payload manageable
-          const format = args.returnBase64 ? 'jpeg' : ((args.format as string) || 'png');
-          const quality = args.returnBase64 ? 70 : (args.quality as number | undefined);
+          const format = (args.format as string) || 'jpeg';
+          const quality = (args.quality as number) || 80;
 
           const result = await this.sendToExtension('take_screenshot', {
             tabId,
@@ -461,6 +460,7 @@ export class ToolHandlers {
             quality,
             cropTo: args.cropTo,
             selector: args.selector,
+            scale: args.scale,
           });
 
           // result.dataUrl is a data URI: "data:image/jpeg;base64,..."
@@ -470,7 +470,7 @@ export class ToolHandlers {
           // If returnBase64, return as MCP image content (rendered inline by Claude Desktop)
           if (args.returnBase64) {
             return {
-              content: [{ type: 'image' as const, data: base64Data, mimeType: 'image/jpeg' }],
+              content: [{ type: 'image' as const, data: base64Data, mimeType: `image/${format}` }],
               isError: false,
             } as any;
           }

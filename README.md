@@ -1,109 +1,96 @@
-# Tethernet Debug Bridge
+# Tethernet
 
-Firefox browser automation for Claude Code and Claude Desktop via MCP (Model Context Protocol).
+Claude as your browser co-pilot — guides you through complex web workflows step by step, in your real Firefox session.
 
-Tethernet lets Claude see into and control your Firefox browser — console logs, network requests, DOM content, screenshots, and more through MCP tools.
+App Store Connect. AWS Console. Stripe. DNS records. Government forms. Tethernet lets Claude see your screen, read the current page state, and tell you exactly what to click next — while you stay in control of your logged-in browser.
 
-Unlike [foxhole-claude](https://github.com/DrBenedictPorkins/foxhole-claude), which embeds Claude directly in Firefox as a sidebar (calls the Anthropic API with your own key, builds persistent per-site knowledge), Tethernet bridges your existing **Claude Code or Claude Desktop session** to Firefox via MCP — no separate API key needed, Claude lives outside the browser and controls it through your authenticated session.
+## The Problem
 
-## Why Tethernet? (vs Playwright/Puppeteer)
+Complex web workflows are painful:
 
-Playwright and Puppeteer spawn **new, isolated browser instances**. Tethernet connects to **your existing Firefox session**.
+- You're juggling 10 documentation tabs while filling out a form
+- One wrong step means starting over
+- The UI changes, the docs are outdated, you're guessing
+- Automation fails because the site needs your real session, 2FA, or human judgment
+
+**Tethernet makes Claude your navigator.** You drive, Claude knows the route.
+
+## How It Works
+
+1. Claude takes a screenshot — sees exactly what you see
+2. Claude reads the page state (DOM, network responses, error messages)
+3. Claude tells you: *"Click the blue '+' button in the top-right corner"*
+4. You click it in your real, logged-in browser
+5. Claude confirms it worked and gives you the next step
+
+No scripted automation that breaks on page changes. No re-authenticating. No handing credentials to a bot. You stay in control; Claude handles the complexity.
+
+## Real Use Cases
+
+**Apple Developer / App Store Connect**
+Register a new iOS app, set up provisioning profiles, configure entitlements, navigate TestFlight — flows that normally require reading 5 Apple docs simultaneously.
+
+**AWS Console**
+Create IAM roles with the right permissions, set up VPC security groups, configure S3 bucket policies — without getting lost in the endless settings panels.
+
+**Stripe**
+Set up webhook endpoints, create products and pricing, configure customer portal settings — step by step, with Claude verifying each response.
+
+**DNS Management**
+Add CNAME, TXT, MX records across any registrar (Cloudflare, Route53, Namecheap) — Claude reads your current records and tells you exactly what to add.
+
+**Enterprise SaaS Onboarding**
+Any multi-step setup flow with conditional branches, verification steps, and obscure configuration options.
+
+**Government / Compliance Forms**
+Complex forms where one wrong answer affects subsequent questions — Claude reads ahead and guides each field.
+
+## Why Not Playwright or Puppeteer?
+
+Playwright and Puppeteer spawn new, isolated browser instances. Tethernet connects to **your existing Firefox session**.
 
 | | Tethernet | Playwright/Puppeteer |
 |---|---------|---------------------|
 | **Your logged-in sessions** | ✅ Already authenticated | ❌ Must handle auth flows |
+| **2FA / CAPTCHA flows** | ✅ You handle it, Claude guides | ❌ Automation breaks here |
 | **Your extensions** | ✅ Ad blockers, password managers | ❌ Clean browser |
-| **Your cookies/history** | ✅ Full profile access | ❌ Temporary profile |
-| **Inspect any tab** | ✅ Tabs you opened manually | ❌ Only spawned tabs |
+| **Sensitive actions** | ✅ Human confirms each step | ❌ Bot executes blindly |
+| **Dynamic / SPA sites** | ✅ Screenshot-based, always works | ❌ Selector fragility |
 | **MCP native** | ✅ Built for Claude Code | ❌ Requires wrapper |
 
-**Use Playwright** for: CI/CD, headless scraping, cross-browser testing, parallel execution.
+**Use Playwright** for: CI/CD pipelines, headless scraping, automated regression tests, parallel execution.
 
-**Use Tethernet** for: Personal automation, authenticated workflows, debugging your session, Claude Code integration.
+**Use Tethernet** for: Authenticated workflows, complex setup flows, anything that needs your real session and human judgment at key steps.
 
-*Example: Bulk-removing 400 YouTube "Watch Later" videos is trivial with Tethernet (you're already logged in) but requires complex auth handling with Playwright.*
+## Installation
 
-## Quick Start
+**Step 1 — Install the Firefox extension**
 
-### Option A: Install script (recommended)
+[Get Tethernet on Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/tethernet/)
 
+**Step 2 — Register the MCP server**
+
+*Claude Code:*
 ```bash
-./install.sh
+claude mcp add tethernet --scope user -- npx -y @drbenedictporkins/tethernet-mcp
 ```
 
-The script does the following — run it once, re-run to update:
-
-1. Builds the MCP server (`server/npm run build`)
-2. Registers the server globally with Claude Code (`claude mcp add tethernet --scope user`)
-3. Copies `agents/tethernet-agent.md` → `~/.claude/agents/tethernet-agent.md`
-4. Appends a minimal Tethernet block to `~/.claude/CLAUDE.md` (controls how Claude routes browser automation tasks)
-5. If Claude Desktop is installed, adds Tethernet to its MCP config automatically
-
-If any component is already installed, the script asks whether to update it.
-
-### Option B: Manual steps
-
-**1. Build and register the MCP server**
-
-```bash
-cd server && npm install && npm run build
-
-# Register globally with Claude Code (use your actual path)
-claude mcp add tethernet --scope user -- node /path/to/firefox-tethernet/server/dist/index.js
-```
-
-**2. Install the tethernet agent**
-
-```bash
-mkdir -p ~/.claude/agents
-cp agents/tethernet-agent.md ~/.claude/agents/tethernet-agent.md
-```
-
-The agent gives Claude instructions for browser automation: mandatory SPA detection, co-pilot mode fallback, and progressive DOM inspection patterns.
-
-**3. Add routing rules to `~/.claude/CLAUDE.md`**
-
-Append the following to `~/.claude/CLAUDE.md` (create the file if it doesn't exist):
-
-```markdown
-## Tethernet Browser Automation
-
-**CRITICAL: NEVER call `mcp__tethernet__*` tools directly from the main agent. ALWAYS delegate to the `tethernet` subagent.**
-
-The only tools the main agent may call directly:
-- `get_connection_info` — get WebSocket port for the current session
-- `get_connection_status` — check if extension is connected
-
-All other tools (navigate, execute_script, click, DOM inspection, screenshots, etc.) must go through the `tethernet` subagent, which enforces mandatory SPA detection and co-pilot mode.
-
-**Port is dynamic per session.** Always call `get_connection_info` for the current port — never use a cached value from conversation history.
-```
-
-**4. Claude Desktop (optional)**
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+*Claude Desktop* — add to your config file and restart:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
     "tethernet": {
-      "command": "node",
-      "args": ["/path/to/firefox-tethernet/server/dist/index.js"]
+      "command": "npx",
+      "args": ["-y", "@drbenedictporkins/tethernet-mcp"]
     }
   }
 }
 ```
 
-Restart Claude Desktop after saving.
-
-**5. Load the extension in Firefox**
-
-```
-about:debugging → This Firefox → Load Temporary Add-on → extension/manifest.json
-```
-
-Or with auto-reload: `npm run ext:run`
+> For contributors and developers: see [DEVELOPMENT.md](DEVELOPMENT.md) for clone/build instructions, local extension loading, and how to add new tools.
 
 ### Connecting each session
 
@@ -133,45 +120,6 @@ Firefox Extension  ◄── WebSocket (dynamic port) ──►  MCP Server  ◄
 
 The server is spawned by Claude Code as a child process (stdio transport). Each session gets its own server process and an OS-assigned WebSocket port — explicit 1:1 binding between Claude session and Firefox window. The assigned port is exposed via the `get_connection_info` tool.
 
-## Repository Structure
-
-```
-tethernet-debug-bridge/
-├── extension/          # Firefox extension (Manifest V2)
-│   ├── background.js   # WebSocket client, command routing, network capture
-│   ├── content.js      # Console/error interception, DOM manipulation
-│   ├── popup/          # Extension popup with host:port connect UI
-│   └── manifest.json
-├── server/             # MCP server (Node.js/TypeScript)
-│   ├── src/
-│   │   ├── server.ts           # stdio transport, startup, shutdown
-│   │   ├── connection/
-│   │   │   └── extension.ts   # WebSocket server (dynamic port)
-│   │   ├── mcp/
-│   │   │   ├── tools.ts       # Tool definitions
-│   │   │   └── handlers.ts    # Tool implementations
-│   │   └── utils/config.ts    # Buffer limits, WebSocket config
-│   └── README.md
-├── agents/
-│   └── tethernet-agent.md  # Claude Code agent for browser automation
-└── CLAUDE.md             # Development guide
-```
-
-## Development
-
-```bash
-# Server
-cd server
-npm run dev     # Hot reload
-npm run build   # Compile
-npm test        # Run tests
-
-# Extension
-npm run ext:run    # Firefox with auto-reload
-npm run ext:lint   # Lint
-npm run ext:build  # Package for distribution
-```
-
 ## MCP Tools
 
 40+ tools across: tab management, navigation, DOM inspection, script execution, network monitoring, screenshots, storage/cookies, and more.
@@ -184,3 +132,83 @@ Key tools:
 - `take_screenshot` — capture page to file
 
 See `server/README.md` for the full tool reference.
+
+## Extension Debug Bridge
+
+Tethernet can inspect the internal state of **other Firefox extensions** you're developing — live variable dumps, error logs, storage snapshots — without adding `console.log` everywhere.
+
+### How it works
+
+Your extension injects `window.__TETHERNET_DEBUG_BRIDGE` into the page context. Tethernet communicates with it via CustomEvents. Claude can then call `check_debug_bridge` and `query_extension_debug` to inspect your extension's state from Claude Code.
+
+### Adding the bridge to your extension
+
+In your extension's content script:
+
+```javascript
+// Inject bridge into page context (content scripts can't set window directly)
+const script = document.createElement('script');
+script.textContent = `(function() {
+  // Identity — read by check_debug_bridge
+  window.__TETHERNET_DEBUG_BRIDGE = {
+    version: 1,
+    extensionId: 'your-extension@yourdomain.com',
+    extensionName: 'Your Extension Name',
+    injectedAt: Date.now()
+  };
+
+  // Handle queries from Tethernet
+  window.addEventListener('__tethernet_debug_request', (event) => {
+    const { type } = event.detail;
+    let response;
+
+    switch (type) {
+      case 'ping':
+        response = { ok: true, timestamp: Date.now() };
+        break;
+      case 'getState':
+        // Return whatever internal state is useful for debugging
+        response = {
+          status: window.__myExt?.status,
+          queueLength: window.__myExt?.queue?.length,
+          lastError: window.__myExt?.lastError,
+        };
+        break;
+      case 'getErrors':
+        response = { errors: window.__myExt?.errors || [] };
+        break;
+      case 'getManifest':
+        response = { name: 'Your Extension', version: '1.0.0' };
+        break;
+      default:
+        response = { error: 'Unknown request type: ' + type };
+    }
+
+    // Return response to Tethernet
+    window.__tethernet_debug_response = response;
+    window.dispatchEvent(new Event('__tethernet_debug_response'));
+  });
+})();`;
+document.documentElement.appendChild(script);
+script.remove();
+```
+
+### Using the bridge from Claude Code
+
+```
+> check_debug_bridge
+{ present: true, version: 1, extensionName: "Your Extension", extensionId: "..." }
+
+> query_extension_debug { "request": { "type": "ping" } }
+{ ok: true, timestamp: 1234567890 }
+
+> query_extension_debug { "request": { "type": "getState" } }
+{ status: "idle", queueLength: 3, lastError: null }
+
+> query_extension_debug { "request": { "type": "getErrors" } }
+{ errors: [{ type: "error", msg: "Failed to fetch", stack: "..." }] }
+```
+
+### Note on `browser.storage`
+
+Page-context scripts can't access `browser.storage` directly. To expose storage via the bridge, have your content script read from storage and cache the values into a page-context variable that your `getStorage` handler can return.

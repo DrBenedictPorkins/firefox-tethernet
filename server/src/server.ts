@@ -175,6 +175,7 @@ export async function startServer(): Promise<void> {
     const parentComm = execSync(`ps -o comm= -p ${parentPid} 2>/dev/null`, { encoding: 'utf8' }).trim();
     watchViaGrandparent = parentComm.includes('disclaimer');
   } catch { /* ignore */ }
+  extensionHandler.setClientType(watchViaGrandparent ? 'Claude Desktop' : 'Claude Code');
 
   setInterval(() => {
     try {
