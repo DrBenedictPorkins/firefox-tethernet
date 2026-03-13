@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Tethernet",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Claude browser co-pilot — guides you step by step through complex web workflows in your real logged-in Firefox session via Claude Code or Claude Desktop.",
   "browser_specific_settings": {
     "gecko": {

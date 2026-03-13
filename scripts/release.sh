@@ -86,15 +86,16 @@ ok "Tagged v$VERSION"
 # --- Bump to next dev version ---
 IFS='.' read -r major minor patch <<< "$VERSION"
 NEXT="$major.$minor.$((patch + 1))"
-info "Bumping to next dev version v$NEXT..."
+VERSION="$NEXT"
+info "Bumping to next dev version v$VERSION..."
 
 bump_json_version "server/package.json"
 bump_json_version "package.json"
 bump_json_version "extension/manifest.json"
 
 git add server/package.json package.json extension/manifest.json
-git commit -m "chore: bump to v$NEXT [dev]"
-ok "Dev version set to v$NEXT"
+git commit -m "chore: bump to v$VERSION [dev]"
+ok "Dev version set to v$VERSION"
 
 echo ""
 echo "Release v$VERSION complete. Next steps:"
