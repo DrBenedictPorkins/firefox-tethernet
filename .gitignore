@@ -25,6 +25,7 @@ coverage/
 
 # Firefox extension artifacts
 extension/web-ext-artifacts/
+web-ext-artifacts/
 
 # Claude Code local settings
 .claude/

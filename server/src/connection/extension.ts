@@ -38,7 +38,7 @@ export class ExtensionConnectionHandler {
 
   async start(): Promise<number> {
     return new Promise((resolve, reject) => {
-      this.httpServer.listen(0, () => {
+      this.httpServer.listen(0, CONFIG.websocket.host, () => {
         const addr = this.httpServer.address();
         if (addr && typeof addr === 'object') {
           this.port = addr.port;
@@ -66,7 +66,7 @@ export class ExtensionConnectionHandler {
   }
 
   getWsUrl(): string {
-    return `ws://localhost:${this.port}${CONFIG.websocket.path}`;
+    return `ws://${CONFIG.websocket.host}:${this.port}${CONFIG.websocket.path}`;
   }
 
   private handleConnection(socket: WebSocket): void {

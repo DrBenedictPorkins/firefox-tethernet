@@ -100,7 +100,33 @@ Each Claude Code session gets a dynamic port. After opening a session:
 > get_connection_info
 ```
 
-Returns e.g. `ws://localhost:54321/extension` — enter `localhost:54321` in the Tethernet extension popup and click **Connect**. The icon turns green when connected.
+Returns e.g. `ws://127.0.0.1:54321/extension` — enter `127.0.0.1:54321` in the Tethernet extension popup and click **Connect**. The icon turns green when connected.
+
+### Network interface (advanced)
+
+By default the server binds to `127.0.0.1` (loopback only). To expose it on all interfaces — e.g. when Firefox runs on a different machine or VM — set the `TETHERNET_HOST` environment variable:
+
+*Claude Code:*
+```bash
+claude mcp add tethernet --scope user -e TETHERNET_HOST=0.0.0.0 -- npx -y @drbenedictporkins/tethernet-mcp
+```
+
+*Claude Desktop config:*
+```json
+{
+  "mcpServers": {
+    "tethernet": {
+      "command": "npx",
+      "args": ["-y", "@drbenedictporkins/tethernet-mcp"],
+      "env": {
+        "TETHERNET_HOST": "0.0.0.0"
+      }
+    }
+  }
+}
+```
+
+Any valid bind address works (`0.0.0.0`, a specific LAN IP, etc.). The `get_connection_info` tool always returns the actual host and port to enter in the extension popup.
 
 Verify with:
 

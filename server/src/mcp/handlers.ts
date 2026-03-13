@@ -2,7 +2,7 @@ import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import type { ConnectionManager } from '../connection/manager.js';
 import type { MCPToolResult } from './types.js';
-import { ollamaConfig } from '../utils/config.js';
+import { CONFIG, ollamaConfig } from '../utils/config.js';
 import { checkOllamaConnection, ollamaGenerate } from '../ollama/client.js';
 
 export class ToolHandlers {
@@ -621,9 +621,10 @@ CLARIFY before starting if the request is ambiguous.`,
         // Connection Info
         case 'get_connection_info':
           return this.success({
-            wsUrl: `ws://localhost:${this.wsPort}/extension`,
+            wsUrl: `ws://${CONFIG.websocket.host}:${this.wsPort}/extension`,
             port: this.wsPort,
-            hint: 'Enter localhost:PORT in the Tethernet extension popup to connect.',
+            host: CONFIG.websocket.host,
+            hint: `Enter ${CONFIG.websocket.host}:${this.wsPort} in the Tethernet extension popup to connect.`,
           });
 
         // Connection Status

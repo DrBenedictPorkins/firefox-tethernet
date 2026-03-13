@@ -72,12 +72,11 @@ Tethernet uses **stdio transport**. Claude Code spawns the server as a child pro
 
 ### How the Dynamic Port Works
 
-On startup the server binds WebSocket on port 0 (OS picks an available port) and writes it to `~/.tethernet/port`. Each Claude Code session gets its own port, giving explicit 1:1 binding between session and Firefox window.
+On startup the server binds WebSocket on port 0 (OS picks an available port). The port is held in memory and returned via the `get_connection_info` MCP tool. Each Claude Code session gets its own port, giving explicit 1:1 binding between session and Firefox window.
 
 ### Troubleshooting
 
 - **Extension not connected**: Call `get_connection_info`, enter the shown port in the extension popup
-- **Port file**: `cat ~/.tethernet/port` to see the current session's port
 - **Server logs**: All logs go to stderr (stdout is reserved for MCP protocol)
 
 ## Architecture
@@ -398,7 +397,7 @@ query_extension_debug({ request: { type: 'getErrors' }, timeout: 10000 })
 ## Development Notes
 
 - Server logs go to stderr (stdout is reserved for MCP stdio protocol — never use `console.log` in server code)
-- Port written to `~/.tethernet/port` on startup, deleted on shutdown
+- Port is held in memory; use `get_connection_info` MCP tool to retrieve it
 - Extension uses `[Tethernet]` prefix for console messages
 - Content script uses IIFE with `window.__tethernet_injected` guard
 - Extension WebSocket auto-reconnects every 2 seconds (only when a server URL is saved)

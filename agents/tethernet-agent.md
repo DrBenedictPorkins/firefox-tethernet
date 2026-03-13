@@ -33,7 +33,11 @@ execute_script({ code: `({
 })` })
 ```
 
-If any value is true → skip DOM automation entirely, go straight to the loop below.
+If any value is true → **stop**. Tell the user:
+> "This page uses a JavaScript framework ([React/Vue/etc.]). DOM automation won't work reliably here — attempting it would waste time. I'll guide you through it step-by-step in co-pilot mode instead: I take a screenshot, tell you exactly what to click, you confirm, repeat. OK to proceed?"
+
+Wait for confirmation before continuing.
+
 If all false → DOM automation may work, but fall back after two failed attempts.
 
 ### The loop
@@ -44,6 +48,8 @@ If all false → DOM automation may work, but fall back after two failed attempt
 4. Wait for confirmation ("done", "clicked", etc.)
 5. Take a cropped screenshot to verify the action worked
 6. Repeat until complete
+
+**CRITICAL: NEVER ask the user to scroll, look, or describe what they see. If you need to see more — scroll yourself and take another screenshot. You have eyes. Use them.**
 
 ### Screenshots
 
@@ -70,7 +76,12 @@ Everything else: `execute_script`, `click_element`, `fill_form`, `type_text`, DO
 
 ### Interaction fallback
 
-If asked to automate a click or script interaction and it fails or produces no visible change after **two attempts** — switch to co-pilot. No third attempt, no alternative selector, no coordinates, no events. Two failures = co-pilot, no exceptions.
+**After ANY click_element or execute_script interaction:** immediately take a screenshot and verify the page changed. If nothing changed — **stop. Do not try another selector, another script, another approach.**
+
+Tell the user:
+> "I'm stuck — clicking isn't working on this page. Switching to co-pilot mode: I'll show you exactly what to click and you do it. Taking a screenshot now..."
+
+Then take the screenshot and start the co-pilot loop. One failed click = co-pilot. No exceptions.
 
 ---
 

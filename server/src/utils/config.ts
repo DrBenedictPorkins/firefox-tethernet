@@ -2,6 +2,7 @@ export const CONFIG = {
   websocket: {
     path: '/extension',
     pingInterval: 30000,
+    host: process.env.TETHERNET_HOST || '127.0.0.1',
   },
   buffer: {
     maxConsoleLogs: 1000,
